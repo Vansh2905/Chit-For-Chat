@@ -68,7 +68,7 @@ export default function Chat() {
   }, [messages]);
 
   const initSocket = (userData) => {
-    const s = io("http://localhost:5000", { transports: ["websocket", "polling"] });
+    const s = io("https://chit-for-chat.onrender.com", { transports: ["websocket", "polling"] });
     setSocket(s);
 
     s.on("connect", () => {
@@ -112,7 +112,7 @@ export default function Chat() {
 
   const fetchUsers = async (token) => {
     try {
-      const res = await fetch("http://localhost:5000/api/users", {
+      const res = await fetch("https://chit-for-chat.onrender.com/api/users", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -127,7 +127,7 @@ export default function Chat() {
     setUnreadCounts((prev) => ({ ...prev, [chatUser._id]: 0 }));
     // create or get chat
     const token = localStorage.getItem("token");
-    const res = await fetch("http://localhost:5000/api/chats", {
+    const res = await fetch("https://chit-for-chat.onrender.com/api/chats", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ userId: chatUser._id }),
@@ -143,7 +143,7 @@ export default function Chat() {
   const fetchMessages = async (chatId) => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:5000/api/messages/${chatId}`, {
+      const res = await fetch(`https://chit-for-chat.onrender.com/api/messages/${chatId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
