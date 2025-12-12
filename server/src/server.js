@@ -11,10 +11,11 @@ const io = new Server(server, {
       "http://localhost:3000", 
       "http://127.0.0.1:5500", 
       "http://localhost:5500",
-      process.env.CLIENT_URL,
-      "https://chit-for-chat-client.vercel.app"
+      "https://chit-for-chat-client.vercel.app",
+      process.env.CLIENT_URL
     ],
     methods: ["GET", "POST"],
+    credentials: true
   },
 });
 
