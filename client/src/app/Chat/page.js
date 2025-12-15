@@ -44,7 +44,7 @@ export default function Chat() {
     const token = localStorage.getItem("token");
     const userData = localStorage.getItem("user");
     if (!token) {
-      router.push("/login");
+      router.push("/Login");
       return;
     }
     if (userData) {
