@@ -4,6 +4,8 @@ import Link from "next/link";
 import { IoMdHome } from "react-icons/io";
 import { useRouter } from "next/navigation";
 
+const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
+
 const Navbar = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loaded, setLoaded] = useState(false); 
@@ -46,9 +48,10 @@ const Navbar = () => {
             <Link href="/Profile">
               <div className="w-8 h-8 bg-white rounded-full overflow-hidden cursor-pointer">
                 <img
-                  src="/default-avatar.png"
+                  src={PLACEHOLDER_AVATAR}
                   alt="Profile"
                   className="w-full h-full object-cover"
+                  onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
                 />
               </div>
             </Link>

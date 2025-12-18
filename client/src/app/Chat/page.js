@@ -5,7 +5,7 @@ import { IoSend, IoCamera, IoEllipse, IoChatbubbleOutline } from "react-icons/io
 import { useRouter } from "next/navigation";
 import io from "socket.io-client";
 
-const PLACEHOLDER_AVATAR = "/mnt/data/17bcbcb1-cd40-454d-9de4-0c6bc301c056.png";
+const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
 
 function formatTime(ts) {
   try {
@@ -244,9 +244,10 @@ export default function Chat() {
               >
                 <div className="flex items-center gap-3">
                   <img
-                    src={u.pic || PLACEHOLDER_AVATAR}
+                    src={u.pic && u.pic !== 'default-avatar.png' ? u.pic : PLACEHOLDER_AVATAR}
                     alt={u.name}
                     className="w-12 h-12 rounded-full object-cover ring-1 ring-slate-100"
+                    onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
                   />
                   <div>
                     <div className="text-sm font-medium text-slate-700">{u.name}</div>
@@ -284,7 +285,12 @@ export default function Chat() {
         <div className="flex items-center justify-between p-4 border-b bg-white">
           {selectedUser ? (
             <div className="flex items-center gap-3">
-              <img src={selectedUser.pic || PLACEHOLDER_AVATAR} alt={selectedUser.name} className="w-11 h-11 rounded-full object-cover" />
+              <img 
+                src={selectedUser.pic || PLACEHOLDER_AVATAR} 
+                alt={selectedUser.name} 
+                className="w-11 h-11 rounded-full object-cover"
+                onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
+              />
               <div>
                 <div className="text-sm font-semibold text-slate-800">{selectedUser.name}</div>
                 <div className="text-xs text-slate-400">{selectedUser.isOnline ? "Online" : `Last seen ${selectedUser.lastSeen ? new Date(selectedUser.lastSeen).toLocaleString() : "—"}`}</div>
@@ -319,7 +325,12 @@ export default function Chat() {
               <div key={msg._id || idx} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
                 <div className={`flex items-end ${isMine ? "flex-row-reverse" : ""} gap-3 max-w-[78%]`}>
                   {showAvatar && !isMine && (
-                    <img src={msg.sender?.pic || PLACEHOLDER_AVATAR} alt={msg.sender?.name} className="w-8 h-8 rounded-full object-cover" />
+                    <img 
+                      src={msg.sender?.pic || PLACEHOLDER_AVATAR} 
+                      alt={msg.sender?.name} 
+                      className="w-8 h-8 rounded-full object-cover"
+                      onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
+                    />
                   )}
 
                   <div>

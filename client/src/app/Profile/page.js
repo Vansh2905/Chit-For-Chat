@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
+const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
+
 const Profile = () => {
   const [user, setUser] = useState(null);
   const [name, setName] = useState('');
@@ -78,9 +80,10 @@ const Profile = () => {
       <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md">
         <div className="text-center mb-6">
           <img 
-            src={user?.pic} 
+            src={user?.pic || PLACEHOLDER_AVATAR} 
             alt="Profile" 
             className="w-24 h-24 rounded-full mx-auto mb-4"
+            onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
           />
           <h1 className='text-2xl font-bold text-gray-800'>Profile</h1>
         </div>
