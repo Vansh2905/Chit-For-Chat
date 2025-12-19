@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { IoSend, IoCamera, IoEllipse, IoChatbubbleOutline } from "react-icons/io5";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import io from "socket.io-client";
 
 const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
@@ -28,6 +29,7 @@ function TypingDots() {
 export default function Chat() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  const [userName, setUserName] = useState("");
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [currentChat, setCurrentChat] = useState(null);
@@ -49,6 +51,7 @@ export default function Chat() {
     }
     if (userData) {
       const parsed = JSON.parse(userData);
+      setUserName(parsed.name);
       setUser(parsed);
       fetchUsers(token);
       initSocket(parsed);
@@ -194,7 +197,7 @@ export default function Chat() {
         <div className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-linear-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold">
-              CF
+              <Link href="/Profile">{userName.charAt(0).toUpperCase()}</Link>
             </div>
             <div>
               <div className="text-sm font-semibold text-slate-700">Chit-For-Chat</div>
