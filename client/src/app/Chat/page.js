@@ -200,17 +200,9 @@ export default function Chat() {
               <Link href="/Profile">{userName.charAt(0).toUpperCase()}</Link>
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-700">Chit-For-Chat</div>
-              <div className="text-xs text-slate-400">Real-time conversations</div>
+              <div className="text-sm font-semibold text-slate-700">👋 Hello {userName}</div>
+              <div className="text-xs text-slate-400">Welcome to Chit-For-Chat</div>
             </div>
-          </div>
-          <div>
-            <button
-              className="text-sm bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700"
-              onClick={() => router.push("/Profile")}
-            >
-              Profile
-            </button>
           </div>
         </div>
 
