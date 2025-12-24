@@ -1,16 +1,27 @@
 // app/chat/page.js
 "use client";
 import React, { useEffect, useRef, useState } from "react";
-import { IoSend, IoCamera, IoEllipse, IoChatbubbleOutline } from "react-icons/io5";
+import {
+  IoSend,
+  IoCamera,
+  IoEllipse,
+  IoCloseOutline,
+  IoChatbubbleOutline,
+} from "react-icons/io5";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import io from "socket.io-client";
+import { uploadToCloudinary } from "../utils/cloudinary";
 
-const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
+const PLACEHOLDER_AVATAR =
+  "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
 
 function formatTime(ts) {
   try {
-    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return new Date(ts).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
     return "";
   }
@@ -19,9 +30,18 @@ function formatTime(ts) {
 function TypingDots() {
   return (
     <div className="flex items-center gap-1">
-      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0s" }} />
-      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.15s" }} />
-      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.3s" }} />
+      <span
+        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+        style={{ animationDelay: "0s" }}
+      />
+      <span
+        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+        style={{ animationDelay: "0.15s" }}
+      />
+      <span
+        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+        style={{ animationDelay: "0.3s" }}
+      />
     </div>
   );
 }
@@ -39,8 +59,10 @@ export default function Chat() {
   const [typingText, setTypingText] = useState("");
   const [unreadCounts, setUnreadCounts] = useState({});
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const messagesRef = useRef(null);
   const inputRef = useRef(null);
+  const [previewImage, setPreviewImage] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -71,7 +93,9 @@ export default function Chat() {
   }, [messages]);
 
   const initSocket = (userData) => {
-    const s = io("https://chit-for-chat.onrender.com", { transports: ["websocket", "polling"] });
+    const s = io("https://chit-for-chat.onrender.com", {
+      transports: ["websocket", "polling"],
+    });
     setSocket(s);
 
     s.on("connect", () => {
@@ -86,15 +110,22 @@ export default function Chat() {
       } else {
         // increment unread for the chat's other participant(s)
         const senderId = message.sender?._id || message.sender;
-        setUnreadCounts((prev) => ({ ...prev, [senderId]: (prev[senderId] || 0) + 1 }));
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [senderId]: (prev[senderId] || 0) + 1,
+        }));
       }
       // show desktop notification when hidden
       if (document.hidden && Notification.permission === "granted") {
         try {
-          const n = new Notification(`${message.sender?.name || "New message"}`, {
-            body: message.content || "Sent an attachment",
-            icon: (message.sender && message.sender.pic) || PLACEHOLDER_AVATAR,
-          });
+          const n = new Notification(
+            `${message.sender?.name || "New message"}`,
+            {
+              body: message.content || "Sent an attachment",
+              icon:
+                (message.sender && message.sender.pic) || PLACEHOLDER_AVATAR,
+            }
+          );
           n.onclick = () => (window.focus(), n.close());
           setTimeout(() => n.close(), 4000);
         } catch {}
@@ -132,23 +163,33 @@ export default function Chat() {
     const token = localStorage.getItem("token");
     const res = await fetch("https://chit-for-chat.onrender.com/api/chats", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ userId: chatUser._id }),
     });
     const chat = await res.json();
     if (res.ok) {
       setCurrentChat(chat);
       fetchMessages(chat._id);
-      socket?.emit("join_chat", { _id: user._id, chatId: chat._id, name: user.name });
+      socket?.emit("join_chat", {
+        _id: user._id,
+        chatId: chat._id,
+        name: user.name,
+      });
     }
   };
 
   const fetchMessages = async (chatId) => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`https://chit-for-chat.onrender.com/api/messages/${chatId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `https://chit-for-chat.onrender.com/api/messages/${chatId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       const data = await res.json();
       if (res.ok) setMessages(data);
     } catch (err) {
@@ -167,15 +208,56 @@ export default function Chat() {
     // optimistic UI
     setMessages((m) => [
       ...m,
-      { ...payload, createdAt: new Date().toISOString(), sender: { _id: user._id, name: user.name, pic: user.pic } },
+      {
+        ...payload,
+        createdAt: new Date().toISOString(),
+        sender: { _id: user._id, name: user.name, pic: user.pic },
+      },
     ]);
     setNewMessage("");
     inputRef.current?.focus();
   };
 
+  const handleImageUpload = async (file) => {
+    if (!file || !currentChat) return;
+
+    setUploading(true);
+    try {
+      const imageUrl = await uploadToCloudinary(file);
+
+      socket.emit("send_message", {
+        sender: user._id,
+        content: "📷 Image",
+        chatId: currentChat._id,
+        messageType: "image",
+        imageUrl,
+      });
+
+      setMessages((m) => [
+        ...m,
+        {
+          sender: { _id: user._id, name: user.name, pic: user.pic },
+          content: "Image",
+          chatId: currentChat._id,
+          messageType: "image",
+          imageUrl,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    } catch (error) {
+      console.error("Upload failed:", error);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const onTyping = () => {
     if (!socket || !currentChat) return;
-    socket.emit("typing_start", { userId: user._id, userName: user.name, chatId: currentChat._id });
+    socket.emit("typing_start", {
+      userId: user._id,
+      userName: user.name,
+      chatId: currentChat._id,
+    });
     clearTimeout(window._typingTimeout);
     window._typingTimeout = setTimeout(() => {
       socket.emit("typing_stop", { userId: user._id, chatId: currentChat._id });
@@ -200,8 +282,12 @@ export default function Chat() {
               <Link href="/Profile">{userName.charAt(0).toUpperCase()}</Link>
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-700">👋 Hello {userName}</div>
-              <div className="text-xs text-slate-400">Welcome to Chit-For-Chat</div>
+              <div className="text-sm font-semibold text-slate-700">
+                👋 Hello {userName}
+              </div>
+              <div className="text-xs text-slate-400">
+                Welcome to Chit-For-Chat
+              </div>
             </div>
           </div>
         </div>
@@ -214,7 +300,9 @@ export default function Chat() {
               onChange={(e) => {
                 const q = e.target.value.toLowerCase();
                 fetchUsers(localStorage.getItem("token")).then(() => {
-                  setUsers((prev) => prev.filter((u) => u.name.toLowerCase().includes(q)));
+                  setUsers((prev) =>
+                    prev.filter((u) => u.name.toLowerCase().includes(q))
+                  );
                 });
               }}
             />
@@ -224,8 +312,13 @@ export default function Chat() {
           </div>
         </div>
 
-        <div className="px-2 space-y-1 overflow-y-auto" style={{ maxHeight: "calc(100vh - 220px)" }}>
-          {users.length === 0 && <div className="p-4 text-sm text-slate-400">No users found</div>}
+        <div
+          className="px-2 space-y-1 overflow-y-auto"
+          style={{ maxHeight: "calc(100vh - 220px)" }}
+        >
+          {users.length === 0 && (
+            <div className="p-4 text-sm text-slate-400">No users found</div>
+          )}
 
           {users.map((u) => {
             const unread = unreadCounts[u._id] || 0;
@@ -239,13 +332,21 @@ export default function Chat() {
               >
                 <div className="flex items-center gap-3">
                   <img
-                    src={u.pic && u.pic !== 'default-avatar.png' ? u.pic : PLACEHOLDER_AVATAR}
+                    src={
+                      u.pic && u.pic !== "default-avatar.png"
+                        ? u.pic
+                        : PLACEHOLDER_AVATAR
+                    }
                     alt={u.name}
                     className="w-12 h-12 rounded-full object-cover ring-1 ring-slate-100"
-                    onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
+                    onError={(e) => {
+                      e.target.src = PLACEHOLDER_AVATAR;
+                    }}
                   />
                   <div>
-                    <div className="text-sm font-medium text-slate-700">{u.name}</div>
+                    <div className="text-sm font-medium text-slate-700">
+                      {u.name}
+                    </div>
                     <div className="text-xs text-slate-400">
                       {u.isOnline ? (
                         <span className="flex items-center gap-2">
@@ -253,7 +354,11 @@ export default function Chat() {
                           Online
                         </span>
                       ) : (
-                        `Last seen ${u.lastSeen ? new Date(u.lastSeen).toLocaleDateString() : "—"}`
+                        `Last seen ${
+                          u.lastSeen
+                            ? new Date(u.lastSeen).toLocaleDateString()
+                            : "—"
+                        }`
                       )}
                     </div>
                   </div>
@@ -270,7 +375,9 @@ export default function Chat() {
         </div>
 
         <div className="p-4 border-t">
-          <div className="text-xs text-slate-500">Online: {users.filter(u => u.isOnline).length}</div>
+          <div className="text-xs text-slate-500">
+            Online: {users.filter((u) => u.isOnline).length}
+          </div>
         </div>
       </aside>
 
@@ -280,29 +387,50 @@ export default function Chat() {
         <div className="flex items-center justify-between p-4 border-b bg-white">
           {selectedUser ? (
             <div className="flex items-center gap-3">
-              <img 
-                src={selectedUser.pic || PLACEHOLDER_AVATAR} 
-                alt={selectedUser.name} 
+              <img
+                src={selectedUser.pic || PLACEHOLDER_AVATAR}
+                alt={selectedUser.name}
                 className="w-11 h-11 rounded-full object-cover"
-                onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
+                onError={(e) => {
+                  e.target.src = PLACEHOLDER_AVATAR;
+                }}
               />
               <div>
-                <div className="text-sm font-semibold text-slate-800">{selectedUser.name}</div>
-                <div className="text-xs text-slate-400">{selectedUser.isOnline ? "Online" : `Last seen ${selectedUser.lastSeen ? new Date(selectedUser.lastSeen).toLocaleString() : "—"}`}</div>
+                <div className="text-sm font-semibold text-slate-800">
+                  {selectedUser.name}
+                </div>
+                <div className="text-xs text-slate-400">
+                  {selectedUser.isOnline
+                    ? "Online"
+                    : `Last seen ${
+                        selectedUser.lastSeen
+                          ? new Date(selectedUser.lastSeen).toLocaleString()
+                          : "—"
+                      }`}
+                </div>
               </div>
             </div>
           ) : (
-            <div className="text-slate-500">Select a user to start chatting</div>
+            <div className="text-slate-500">
+              Select a user to start chatting
+            </div>
           )}
 
           <div className="flex items-center gap-3">
-            <div className="text-xs text-slate-500">{selectedUser ? (users.find(u => u._id === selectedUser._id)?.status || "") : ""}</div>
+            <div className="text-xs text-slate-500">
+              {selectedUser
+                ? users.find((u) => u._id === selectedUser._id)?.status || ""
+                : ""}
+            </div>
             <button className="text-slate-600 hover:text-slate-800">⋯</button>
           </div>
         </div>
 
         {/* Messages list */}
-        <div ref={messagesRef} className="flex-1 p-4 overflow-y-auto space-y-4 bg-linear-to-b from-white to-slate-50">
+        <div
+          ref={messagesRef}
+          className="flex-1 p-4 overflow-y-auto space-y-4 bg-linear-to-b from-white to-slate-50"
+        >
           {!selectedUser && (
             <div className="h-full flex items-center justify-center">
               <div className="text-center text-slate-400">
@@ -312,53 +440,126 @@ export default function Chat() {
             </div>
           )}
 
-          {selectedUser && messages.map((msg, idx) => {
-            const isMine = msg.sender?._id === user?._id;
-            const prev = messages[idx - 1];
-            const showAvatar = !prev || prev.sender?._id !== msg.sender?._id;
-            return (
-              <div key={msg._id || idx} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
-                <div className={`flex items-end ${isMine ? "flex-row-reverse" : ""} gap-3 max-w-[78%]`}>
-                  {showAvatar && !isMine && (
-                    <img 
-                      src={msg.sender?.pic || PLACEHOLDER_AVATAR} 
-                      alt={msg.sender?.name} 
-                      className="w-8 h-8 rounded-full object-cover"
-                      onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
-                    />
-                  )}
+          {selectedUser &&
+            messages.map((msg, idx) => {
+              const isMine = msg.sender?._id === user?._id;
+              const prev = messages[idx - 1];
+              const showAvatar = !prev || prev.sender?._id !== msg.sender?._id;
+              return (
+                <div
+                  key={msg._id || idx}
+                  className={`flex ${isMine ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`flex items-end ${
+                      isMine ? "flex-row-reverse" : ""
+                    } gap-3 max-w-[78%]`}
+                  >
+                    {showAvatar && !isMine && (
+                      <img
+                        src={msg.sender?.pic || PLACEHOLDER_AVATAR}
+                        alt={msg.sender?.name}
+                        className="w-8 h-8 rounded-full object-cover"
+                        onError={(e) => {
+                          e.target.src = PLACEHOLDER_AVATAR;
+                        }}
+                      />
+                    )}
 
-                  <div>
-                    <div className={`px-4 py-2 rounded-2xl shadow-sm ${isMine ? "bg-blue-600 text-white" : "bg-white text-slate-800 border"}`}>
-                      {msg.messageType === "image" && msg.imageUrl ? (
-                        <img src={msg.imageUrl} alt="image" className="max-w-full rounded-md mb-2" />
-                      ) : null}
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
-                    </div>
-                    <div className={`text-xs mt-1 ${isMine ? "text-right text-slate-300" : "text-left text-slate-400"}`}>
-                      {formatTime(msg.createdAt)}
+                    <div>
+                      <div
+                        className={`rounded-2xl shadow-sm ${
+                          msg.messageType === "image"
+                            ? isMine ?"bg-linear-to-r from-blue-400 to-indigo-400 p-0.5 shadow-none": " bg-slate-200 text-slate-900 p-0.5 shadow-sm"
+                            : isMine
+                            ? "bg-linear-to-r from-blue-500 to-indigo-500 text-white px-4 py-2 rounded-xl shadow"
+                            : "bg-slate-200 text-black px-4 py-2"
+                        }`}
+                      >
+                        {msg.messageType === "image" && msg.imageUrl && (
+                          <img
+                            src={msg.imageUrl}
+                            alt="Shared image"
+                            className="max-w-full max-h-64 rounded-lg cursor-pointer hover:opacity-95 transition-opacity border border-black/5"
+                            onClick={() => setPreviewImage(msg.imageUrl)}
+                          />
+                        )}
+
+                        {/* TEXT MESSAGE */}
+                        {msg.content && msg.messageType !== "image" && (
+                          <div className="whitespace-pre-wrap">
+                            {msg.content}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* TIME */}
+                      <div
+                        className={`text-xs mt-1 ${
+                          isMine
+                            ? "text-right text-slate-300"
+                            : "text-left text-slate-400"
+                        }`}
+                      >
+                        {formatTime(msg.createdAt)}
+                      </div>
                     </div>
                   </div>
                 </div>
+              );
+            })}
+          {previewImage && (
+            <div
+              className="fixed inset-0 bg-black/90 flex items-center justify-center z-50"
+              onClick={() => setPreviewImage(null)}
+            >
+              <img
+                src={previewImage}
+                alt="preview"
+                className="max-w-[90%] max-h-[90%] object-contain"
+              />
+              <div className="absolute top-4 right-4 text-white text-2xl cursor-pointer">
+                <IoCloseOutline />
               </div>
-            );
-          })}
+            </div>
+          )}
 
           {/* typing */}
           {typingText && (
             <div className="text-sm text-slate-500">
-              <TypingDots /> <span className="ml-2 text-slate-600">{typingText}</span>
+              <TypingDots />{" "}
+              <span className="ml-2 text-slate-600">{typingText}</span>
             </div>
           )}
-
         </div>
 
         {/* Input area */}
         <div className="p-4 border-t bg-white">
           <div className="max-w-4xl mx-auto flex items-center gap-3">
-            <label className="p-2 rounded-lg bg-slate-100 cursor-pointer hover:bg-slate-200">
-              <IoCamera size={20} className="text-slate-600" />
-              <input type="file" accept="image/*" className="hidden" />
+            <label
+              className={`p-2 rounded-lg cursor-pointer transition ${
+                uploading
+                  ? "bg-gray-200 cursor-not-allowed"
+                  : "bg-slate-100 hover:bg-slate-200"
+              }`}
+            >
+              <IoCamera
+                size={20}
+                className={uploading ? "text-gray-400" : "text-slate-600"}
+              />
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={uploading || !selectedUser}
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    handleImageUpload(file);
+                    e.target.value = "";
+                  }
+                }}
+              />
             </label>
 
             <input
@@ -367,19 +568,34 @@ export default function Chat() {
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               onInput={onTyping}
-              placeholder={selectedUser ? `Message ${selectedUser.name}...` : "Select a user to chat"}
+              placeholder={
+                selectedUser
+                  ? `Message ${selectedUser.name}...`
+                  : "Select a user to chat"
+              }
               className="flex-1 px-4 py-3 rounded-full border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-200 text-slate-800"
-              disabled={!selectedUser}
+              disabled={!selectedUser || uploading}
             />
 
             <button
               onClick={sendMessage}
-              className={`p-3 rounded-full ${selectedUser ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`}
+              className={`p-3 rounded-full ${
+                selectedUser && !uploading
+                  ? "bg-blue-600 text-white hover:bg-blue-700"
+                  : "bg-slate-200 text-slate-400 cursor-not-allowed"
+              }`}
               aria-label="Send"
+              disabled={!selectedUser || uploading}
             >
               <IoSend size={18} />
             </button>
           </div>
+
+          {uploading && (
+            <div className="max-w-4xl mx-auto mt-2 text-center text-sm text-blue-600">
+              Uploading image...
+            </div>
+          )}
         </div>
       </main>
     </div>
