@@ -422,7 +422,6 @@ export default function Chat() {
                 ? users.find((u) => u._id === selectedUser._id)?.status || ""
                 : ""}
             </div>
-            <button className="text-slate-600 hover:text-slate-800">⋯</button>
           </div>
         </div>
 
