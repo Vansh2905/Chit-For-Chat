@@ -20,11 +20,19 @@ router.get("/", protect, async (req, res) => {
 router.put("/profile", protect, async (req, res) => {
   try {
     const { name, bio, pic } = req.body;
+
+    const updateFields = {};
+
+    if (name !== undefined) updateFields.name = name;
+    if (bio !== undefined) updateFields.bio = bio;
+    if (pic !== undefined) updateFields.pic = pic;
+
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      { name, bio, pic },
-      { new: true }
+      updateFields,
+      { new: true, runValidators: true }
     ).select("-password");
+
     res.json(user);
   } catch (error) {
     res.status(500).json({ message: "Server error" });

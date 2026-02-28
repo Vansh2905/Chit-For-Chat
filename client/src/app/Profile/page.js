@@ -1,10 +1,14 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { uploadToCloudinary } from "../utils/cloudinary";
+import { motion } from 'framer-motion';
+import { LogOut, MessageSquare, Settings, User, Mail, FileText, ChevronLeft, Plus } from 'lucide-react';
+import clsx from 'clsx';
 
 const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
 
-const Profile = () => {
+export default function Profile() {
   const [user, setUser] = useState(null);
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
@@ -15,7 +19,7 @@ const Profile = () => {
   useEffect(() => {
     const token = localStorage.getItem("token");
     const userData = localStorage.getItem("user");
-    
+
     if (!token) {
       router.push("/Login");
       return;
@@ -27,14 +31,14 @@ const Profile = () => {
       setName(parsedUser.name);
       setBio(parsedUser.bio || '');
     }
-    
+
     setLoading(false);
   }, [router]);
 
   const handleUpdate = async (e) => {
     e.preventDefault();
     setUpdating(true);
-    
+
     try {
       const token = localStorage.getItem("token");
       const res = await fetch("https://chit-for-chat.onrender.com/api/users/profile", {
@@ -60,6 +64,36 @@ const Profile = () => {
       setUpdating(false);
     }
   };
+  const handleProfileUpload = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // 1️⃣ Upload to Cloudinary
+  const imageUrl = await uploadToCloudinary(file);
+
+  const token = localStorage.getItem("token");
+
+  // 2️⃣ Save URL to MongoDB
+  const res = await fetch(
+    "https://chit-for-chat.onrender.com/api/users/profile",
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ pic: imageUrl }),
+    }
+  );
+
+  const updatedUser = await res.json();
+
+  if (res.ok) {
+    // 3️⃣ Update local storage
+    localStorage.setItem("user", JSON.stringify(updatedUser));
+    alert("Profile updated successfully!");
+  }
+};
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -69,97 +103,154 @@ const Profile = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">Loading...</div>
+      <div className="min-h-screen bg-[#E5DDD5] dark:bg-[#0B141A] flex items-center justify-center">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+        >
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className='bg-gray-200 min-h-screen flex items-center justify-center p-4'>
-      <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md">
-        <div className="text-center mb-6">
-          <img 
-            src={user?.pic || PLACEHOLDER_AVATAR} 
-            alt="Profile" 
-            className="w-24 h-24 rounded-full mx-auto mb-4"
-            onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
-          />
-          <h1 className='text-2xl font-bold text-gray-800'>Profile</h1>
+    <div className='bg-[#E5DDD5] dark:bg-[#0B141A] min-h-screen flex items-center justify-center p-4 relative overflow-hidden'>
+      {/* Decorative Background Elements */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="bg-card/80 backdrop-blur-xl border border-border shadow-2xl rounded-3xl p-6 sm:p-8 w-full max-w-md relative z-10"
+      >
+        <div className="flex justify-between items-start mb-6">
+          <button
+            onClick={() => router.back()}
+            className="p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground transition-colors cursor-pointer"
+            title="Go Back"
+          >
+            <ChevronLeft size={24} />
+          </button>
+          <div className="flex-1 text-center">
+            <h1 className='text-2xl font-bold text-foreground flex items-center justify-center gap-2'>
+              <Settings className="w-6 h-6 text-primary" />
+              Profile Settings
+            </h1>
+          </div>
+          <div className="w-10" /> {/* Spacer to balance the header */}
         </div>
 
-        <form onSubmit={handleUpdate} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-black mb-1">
+        <div className="text-center mb-8 relative">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.1, type: "spring", stiffness: 200 }}
+            className="relative inline-block"
+          >
+            <img
+              src={user?.pic || PLACEHOLDER_AVATAR}
+              alt="Profile"
+              className="w-28 h-28 rounded-full mx-auto border-4 border-background shadow-lg object-cover bg-muted"
+              onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
+            />
+            <label className="absolute bottom-0 right-0 p-2 bg-primary text-primary-foreground rounded-full shadow-md hover:scale-110 transition-transform disabled:opacity-50 cursor-pointer" title="Change Avatar (Not Implemented)">
+              <Plus size={16} />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleProfileUpload}
+                className="hidden"
+              />
+            </label>
+          </motion.div>
+        </div>
+
+        <form onSubmit={handleUpdate} className="space-y-5">
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-foreground flex items-center gap-2 mb-1.5 ml-1">
+              <User size={16} className="text-muted-foreground" />
               Name
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full p-3 border text-black border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-muted/50 focus:bg-background border border-transparent focus:border-primary pl-4 pr-4 py-3 rounded-xl text-[15px] outline-none transition-all placeholder:text-muted-foreground text-foreground"
               required
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-foreground flex items-center gap-2 mb-1.5 ml-1">
+              <Mail size={16} className="text-muted-foreground" />
               Email
             </label>
             <input
               type="email"
               value={user?.email}
               disabled
-              className="w-full p-3 text-black border border-gray-300 rounded-lg bg-gray-100"
+              className="w-full bg-muted/30 border border-transparent pl-4 pr-4 py-3 rounded-xl text-[15px] outline-none text-muted-foreground cursor-not-allowed"
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-foreground flex items-center gap-2 mb-1.5 ml-1">
+              <FileText size={16} className="text-muted-foreground" />
               Bio
             </label>
             <textarea
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               placeholder="Tell us about yourself..."
-              className="w-full p-3 text-black border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-muted/50 focus:bg-background border border-transparent focus:border-primary pl-4 pr-4 py-3 rounded-xl text-[15px] outline-none transition-all placeholder:text-muted-foreground text-foreground resize-none min-h-[100px]"
               rows="3"
               maxLength="200"
             />
-            <p className="text-sm text-gray-500 mt-1">{bio.length}/200</p>
+            <p className="text-xs text-muted-foreground mt-1.5 text-right font-medium">{bio.length}/200</p>
           </div>
 
-          <button
+          <motion.button
+            whileHover={{ scale: updating ? 1 : 1.02 }}
+            whileTap={{ scale: updating ? 1 : 0.98 }}
             type="submit"
             disabled={updating}
-            className={`w-full p-3 rounded-lg font-semibold ${
+            className={clsx(
+              "w-full py-3.5 rounded-xl font-semibold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer",
               updating
-                ? "bg-blue-400 cursor-not-allowed"
-                : "bg-blue-500 hover:bg-blue-600"
-            } text-white`}
+                ? "bg-primary/50 text-primary-foreground/80 cursor-not-allowed"
+                : "bg-primary text-primary-foreground hover:shadow-lg"
+            )}
           >
-            {updating ? "Updating..." : "Update Profile"}
-          </button>
+            {updating ? (
+              <>
+                <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} className="w-5 h-5 border-2 border-current border-t-transparent rounded-full" />
+                Updating...
+              </>
+            ) : "Save Changes"}
+          </motion.button>
         </form>
 
-        <div className="mt-6 space-y-2">
+        <div className="mt-8 pt-6 border-t border-border grid grid-cols-2 gap-4 cursor-pointer">
           <button
             onClick={() => router.push("/Chat")}
-            className="w-full p-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold"
+            className="w-full flex items-center justify-center gap-2 py-3 bg-muted hover:bg-muted/80 text-foreground rounded-xl font-medium transition-colors border border-border cursor-pointer"
           >
-            Go to Chat
+            <MessageSquare size={18} />
+            <span>Go to Chat</span>
           </button>
-          
+
           <button
             onClick={handleLogout}
-            className="w-full p-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold"
+            className="w-full flex items-center justify-center gap-2 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl font-medium transition-colors border border-red-500/20 cursor-pointer"
           >
-            Logout
+            <LogOut size={18} />
+            <span>Logout</span>
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
-};
-
-export default Profile;
+}

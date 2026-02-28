@@ -1,17 +1,13 @@
 // app/chat/page.js
 "use client";
-import React, { useEffect, useRef, useState } from "react";
-import {
-  IoSend,
-  IoCamera,
-  IoEllipse,
-  IoCloseOutline,
-  IoChatbubbleOutline,
-} from "react-icons/io5";
+import React, { useEffect, useRef, useState, useMemo } from "react";
+import { Send, Camera, X, MessageSquare, Search, MoreVertical, Paperclip, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import io from "socket.io-client";
 import { uploadToCloudinary } from "../utils/cloudinary";
+import { motion, AnimatePresence } from "framer-motion";
+import clsx from "clsx";
 
 const PLACEHOLDER_AVATAR =
   "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
@@ -27,20 +23,26 @@ function formatTime(ts) {
   }
 }
 
-function TypingDots() {
+function TypingIndicator() {
   return (
-    <div className="flex items-center gap-1">
-      <span
-        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-        style={{ animationDelay: "0s" }}
+    <div className="flex items-center gap-1.5 px-3 py-2 bg-muted rounded-2xl w-fit">
+      <motion.span
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+        className="w-1.5 h-1.5 bg-muted-foreground rounded-full"
       />
-      <span
-        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-        style={{ animationDelay: "0.15s" }}
+      <motion.span
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.2 }}
+        className="w-1.5 h-1.5 bg-muted-foreground rounded-full"
       />
-      <span
-        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-        style={{ animationDelay: "0.3s" }}
+      <motion.span
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.4 }}
+        className="w-1.5 h-1.5 bg-muted-foreground rounded-full"
       />
     </div>
   );
@@ -51,6 +53,7 @@ export default function Chat() {
   const [user, setUser] = useState(null);
   const [userName, setUserName] = useState("");
   const [users, setUsers] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState(null);
   const [currentChat, setCurrentChat] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -60,9 +63,23 @@ export default function Chat() {
   const [unreadCounts, setUnreadCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const messagesRef = useRef(null);
+  const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [previewImage, setPreviewImage] = useState(null);
+  const [showSidebarOnMobile, setShowSidebarOnMobile] = useState(true);
+  const [showChatSearch, setShowChatSearch] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
+  useEffect(() => {
+    if (previewImage) {
+      document.body.classList.add("image-preview-active");
+    } else {
+      document.body.classList.remove("image-preview-active");
+    }
+
+    return () => {
+      document.body.classList.remove("image-preview-active");
+    };
+  }, [previewImage]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -85,12 +102,8 @@ export default function Chat() {
   }, [router]);
 
   useEffect(() => {
-    // auto-scroll when messages change
-    messagesRef.current?.scrollTo({
-      top: messagesRef.current?.scrollHeight || 0,
-      behavior: "smooth",
-    });
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, typingText]);
 
   const initSocket = (userData) => {
     const s = io("https://chit-for-chat.onrender.com", {
@@ -103,45 +116,37 @@ export default function Chat() {
     });
 
     s.on("receive_message", (message) => {
-      // message.chatId may be an object or id string, handle both
       const msgChatId = message.chatId?._id || message.chatId;
       if (currentChat && msgChatId === currentChat._id) {
         setMessages((m) => [...m, message]);
       } else {
-        // increment unread for the chat's other participant(s)
         const senderId = message.sender?._id || message.sender;
         setUnreadCounts((prev) => ({
           ...prev,
           [senderId]: (prev[senderId] || 0) + 1,
         }));
       }
-      // show desktop notification when hidden
       if (document.hidden && Notification.permission === "granted") {
         try {
-          const n = new Notification(
-            `${message.sender?.name || "New message"}`,
-            {
-              body: message.content || "Sent an attachment",
-              icon:
-                (message.sender && message.sender.pic) || PLACEHOLDER_AVATAR,
-            }
-          );
+          const n = new Notification(`${message.sender?.name || "New message"}`, {
+            body: message.content || "Sent an attachment",
+            icon: (message.sender && message.sender.pic) || PLACEHOLDER_AVATAR,
+          });
           n.onclick = () => (window.focus(), n.close());
           setTimeout(() => n.close(), 4000);
-        } catch {}
+        } catch { }
       }
     });
 
     s.on("user_typing", (payload) => {
       setTypingText(`${payload.userName} is typing...`);
-      setTimeout(() => setTypingText(""), 1800);
+      clearTimeout(window._typingClearTimeout);
+      window._typingClearTimeout = setTimeout(() => setTypingText(""), 2000);
     });
 
     s.on("user_stop_typing", () => setTypingText(""));
 
-    return () => {
-      s.disconnect();
-    };
+    return () => s.disconnect();
   };
 
   const fetchUsers = async (token) => {
@@ -158,8 +163,9 @@ export default function Chat() {
 
   const openChat = async (chatUser) => {
     setSelectedUser(chatUser);
+    setShowSidebarOnMobile(false);
     setUnreadCounts((prev) => ({ ...prev, [chatUser._id]: 0 }));
-    // create or get chat
+
     const token = localStorage.getItem("token");
     const res = await fetch("https://chit-for-chat.onrender.com/api/chats", {
       method: "POST",
@@ -184,12 +190,9 @@ export default function Chat() {
   const fetchMessages = async (chatId) => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        `https://chit-for-chat.onrender.com/api/messages/${chatId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const res = await fetch(`https://chit-for-chat.onrender.com/api/messages/${chatId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       if (res.ok) setMessages(data);
     } catch (err) {
@@ -205,7 +208,6 @@ export default function Chat() {
       chatId: currentChat._id,
     };
     socket.emit("send_message", payload);
-    // optimistic UI
     setMessages((m) => [
       ...m,
       {
@@ -215,24 +217,22 @@ export default function Chat() {
       },
     ]);
     setNewMessage("");
+    socket.emit("typing_stop", { userId: user._id, chatId: currentChat._id });
     inputRef.current?.focus();
   };
 
   const handleImageUpload = async (file) => {
     if (!file || !currentChat) return;
-
     setUploading(true);
     try {
       const imageUrl = await uploadToCloudinary(file);
-
       socket.emit("send_message", {
         sender: user._id,
-        content: "📷 Image",
+        content: "Image",
         chatId: currentChat._id,
         messageType: "image",
         imageUrl,
       });
-
       setMessages((m) => [
         ...m,
         {
@@ -261,341 +261,361 @@ export default function Chat() {
     clearTimeout(window._typingTimeout);
     window._typingTimeout = setTimeout(() => {
       socket.emit("typing_stop", { userId: user._id, chatId: currentChat._id });
-    }, 900);
+    }, 1500);
   };
+
+  const filteredUsers = useMemo(() => {
+    if (!searchQuery) return users;
+    return users.filter((u) => u.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [users, searchQuery]);
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-gray-600">Loading chat...</div>
+      <div className="h-[calc(100vh-65px)] flex items-center justify-center bg-background">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+        >
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-linear-to-b from-slate-50 to-white">
+    <div className="h-[calc(100vh-65px)] flex bg-background overflow-hidden relative">
       {/* Sidebar */}
-      <aside className="w-full lg:w-80 border-r bg-white shadow-sm">
-        <div className="p-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-linear-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold">
-              <Link href="/Profile">{userName.charAt(0).toUpperCase()}</Link>
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-slate-700">
-                👋 Hello {userName}
-              </div>
-              <div className="text-xs text-slate-400">
-                Welcome to Chit-For-Chat
-              </div>
-            </div>
+      <aside
+        className={clsx(
+          "w-full md:w-[320px] lg:w-[380px] h-full flex flex-col bg-card/80 backdrop-blur-xl border-r border-border shrink-0 transition-all duration-300 absolute md:static z-20",
+          (!showSidebarOnMobile || previewImage) && "max-md:-translate-x-full", previewImage && "md:hidden"
+        )}
+      >
+        <div className="p-4 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">Chats</h1>
           </div>
-        </div>
 
-        <div className="px-4 pb-3">
-          <div className="relative">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
             <input
-              placeholder="Search users..."
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-200 text-sm text-black"
-              onChange={(e) => {
-                const q = e.target.value.toLowerCase();
-                fetchUsers(localStorage.getItem("token")).then(() => {
-                  setUsers((prev) =>
-                    prev.filter((u) => u.name.toLowerCase().includes(q))
-                  );
-                });
-              }}
+              placeholder="Search or start new chat"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-muted/50 focus:bg-background border border-transparent focus:border-border pl-9 pr-4 py-2 rounded-xl text-sm outline-none transition-all placeholder:text-muted-foreground"
             />
-            <div className="absolute right-3 top-2 text-slate-400">
-              <IoChatbubbleOutline />
-            </div>
           </div>
         </div>
 
-        <div
-          className="px-2 space-y-1 overflow-y-auto"
-          style={{ maxHeight: "calc(100vh - 220px)" }}
-        >
-          {users.length === 0 && (
-            <div className="p-4 text-sm text-slate-400">No users found</div>
+        <div className="flex-1 overflow-y-auto px-2 pb-4 hover-scrollbar">
+          {filteredUsers.length === 0 && (
+            <div className="p-4 text-center text-sm text-muted-foreground mt-10">
+              No users found matching your search.
+            </div>
           )}
 
-          {users.map((u) => {
-            const unread = unreadCounts[u._id] || 0;
-            return (
-              <div
-                key={u._id}
-                onClick={() => openChat(u)}
-                className={`flex items-center justify-between gap-3 p-3 rounded-lg cursor-pointer hover:bg-slate-50 transition ${
-                  selectedUser?._id === u._id ? "bg-blue-50" : ""
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <img
-                    src={
-                      u.pic && u.pic !== "default-avatar.png"
-                        ? u.pic
-                        : PLACEHOLDER_AVATAR
-                    }
-                    alt={u.name}
-                    className="w-12 h-12 rounded-full object-cover ring-1 ring-slate-100"
-                    onError={(e) => {
-                      e.target.src = PLACEHOLDER_AVATAR;
-                    }}
-                  />
-                  <div>
-                    <div className="text-sm font-medium text-slate-700">
-                      {u.name}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {u.isOnline ? (
-                        <span className="flex items-center gap-2">
-                          <span className="w-2 h-2 bg-green-500 rounded-full inline-block" />
-                          Online
+          <AnimatePresence>
+            {filteredUsers.map((u) => {
+              const unread = unreadCounts[u._id] || 0;
+              const isSelected = selectedUser?._id === u._id;
+
+              return (
+                <motion.div
+                  key={u._id}
+                  layoutId={`user-${u._id}`}
+                  onClick={() => openChat(u)}
+                  className={clsx(
+                    "flex items-center gap-3 p-3 mb-1 rounded-xl cursor-pointer transition-all duration-200 border border-transparent",
+                    isSelected
+                      ? "bg-primary text-primary-foreground shadow-md"
+                      : "hover:bg-muted"
+                  )}
+                >
+                  <div className="relative">
+                    <img
+                      src={u.pic && u.pic !== "default-avatar.png" ? u.pic : PLACEHOLDER_AVATAR}
+                      alt={u.name}
+                      className="w-12 h-12 rounded-full object-cover shrink-0 bg-background"
+                      onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
+                    />
+                    {u.isOnline && (
+                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-background rounded-full" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-baseline mb-0.5">
+                      <h3 className={clsx("text-sm font-semibold truncate", isSelected ? "text-primary-foreground" : "text-foreground")}>
+                        {u.name}
+                      </h3>
+                      {!isSelected && u.lastSeen && (
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
+                          {new Date(u.lastSeen).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                         </span>
-                      ) : (
-                        `Last seen ${
-                          u.lastSeen
-                            ? new Date(u.lastSeen).toLocaleDateString()
-                            : "—"
-                        }`
                       )}
                     </div>
+                    <p className={clsx(
+                      "text-xs truncate",
+                      isSelected ? "text-primary-foreground/80" : "text-muted-foreground"
+                    )}>
+                      {u.isOnline ? "Online now" : "Offline"}
+                    </p>
                   </div>
-                </div>
 
-                {unread > 0 && (
-                  <div className="min-w-[26px] h-6 px-2 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
-                    {unread > 99 ? "99+" : unread}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="p-4 border-t">
-          <div className="text-xs text-slate-500">
-            Online: {users.filter((u) => u.isOnline).length}
-          </div>
+                  {unread > 0 && (
+                    <div className={clsx(
+                      "min-w-5 h-5 px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0",
+                      isSelected ? "bg-background text-primary" : "bg-primary text-primary-foreground"
+                    )}>
+                      {unread > 99 ? "99+" : unread}
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         </div>
       </aside>
 
-      {/* Main chat panel */}
-      <main className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-white">
-          {selectedUser ? (
-            <div className="flex items-center gap-3">
-              <img
-                src={selectedUser.pic || PLACEHOLDER_AVATAR}
-                alt={selectedUser.name}
-                className="w-11 h-11 rounded-full object-cover"
-                onError={(e) => {
-                  e.target.src = PLACEHOLDER_AVATAR;
-                }}
-              />
-              <div>
-                <div className="text-sm font-semibold text-slate-800">
-                  {selectedUser.name}
-                </div>
-                <div className="text-xs text-slate-400">
-                  {selectedUser.isOnline
-                    ? "Online"
-                    : `Last seen ${
-                        selectedUser.lastSeen
-                          ? new Date(selectedUser.lastSeen).toLocaleString()
-                          : "—"
-                      }`}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-slate-500">
-              Select a user to start chatting
-            </div>
-          )}
-
-          <div className="flex items-center gap-3">
-            <div className="text-xs text-slate-500">
-              {selectedUser
-                ? users.find((u) => u._id === selectedUser._id)?.status || ""
-                : ""}
-            </div>
+      {/* Main Chat Panel */}
+      <main className="flex-1 flex flex-col min-w-0 h-full bg-[#E5DDD5] dark:bg-[#0B141A] relative z-10 w-full">
+        {/* Empty State */}
+        {!selectedUser ? (
+          <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-background/95 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mb-6"
+            >
+              <MessageSquare className="w-10 h-10 text-primary" />
+            </motion.div>
+            <h2 className="text-2xl font-bold text-foreground mb-2">Chit-For-Chat for Web</h2>
+            <p className="text-muted-foreground max-w-md">
+              Select a chat from the sidebar to start messaging. Send photos, text, and connect in real-time.
+            </p>
           </div>
-        </div>
-
-        {/* Messages list */}
-        <div
-          ref={messagesRef}
-          className="flex-1 p-4 overflow-y-auto space-y-4 bg-linear-to-b from-white to-slate-50"
-        >
-          {!selectedUser && (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center text-slate-400">
-                <div className="mb-2 text-2xl">Welcome to Chit-For-Chat</div>
-                <div>Choose a user from the left to begin</div>
-              </div>
-            </div>
-          )}
-
-          {selectedUser &&
-            messages.map((msg, idx) => {
-              const isMine = msg.sender?._id === user?._id;
-              const prev = messages[idx - 1];
-              const showAvatar = !prev || prev.sender?._id !== msg.sender?._id;
-              return (
-                <div
-                  key={msg._id || idx}
-                  className={`flex ${isMine ? "justify-end" : "justify-start"}`}
+        ) : (
+          <>
+            {/* Chat Header */}
+            <header className="h-[60px] px-4 flex items-center justify-between bg-card text-card-foreground shadow-xs shrink-0 z-10">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowSidebarOnMobile(true)}
+                  className="md:hidden p-2 -ml-2 rounded-full hover:bg-muted text-muted-foreground"
                 >
-                  <div
-                    className={`flex items-end ${
-                      isMine ? "flex-row-reverse" : ""
-                    } gap-3 max-w-[78%]`}
-                  >
-                    {showAvatar && !isMine && (
-                      <img
-                        src={msg.sender?.pic || PLACEHOLDER_AVATAR}
-                        alt={msg.sender?.name}
-                        className="w-8 h-8 rounded-full object-cover"
-                        onError={(e) => {
-                          e.target.src = PLACEHOLDER_AVATAR;
-                        }}
-                      />
-                    )}
+                  <ChevronLeft size={24} />
+                </button>
+                <div className="relative">
+                  <img
+                    src={selectedUser.pic || PLACEHOLDER_AVATAR}
+                    alt={selectedUser.name}
+                    className="w-10 h-10 rounded-full object-cover shrink-0 cursor-pointer"
+                    onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
+                  />
+                  {selectedUser.isOnline && (
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-card rounded-full" />
+                  )}
+                </div>
+                <div className="flex flex-col cursor-pointer">
+                  <span className="text-sm font-semibold">{selectedUser.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedUser.isOnline ? "Online" : "Offline"}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (showChatSearch) {
+                      setChatSearchQuery("");
+                    }
+                    setShowChatSearch((prev) => !prev);
+                  }}
+                  className="p-2 rounded-full hover:bg-muted text-muted-foreground transition-colors cursor-pointer"
+                >
+                  {showChatSearch ? <X size={20} /> : <Search size={20} />}
+                </button>
+              </div>
+            </header>
+            <AnimatePresence>
+              {showChatSearch && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  className="px-4 py-2 bg-card border-b border-border overflow-hidden"
+                >
+                  <input
+                    type="text"
+                    placeholder="Search in chat..."
+                    value={chatSearchQuery}
+                    onChange={(e) => setChatSearchQuery(e.target.value)}
+                    className="w-full px-4 py-2 rounded-xl bg-muted outline-none text-[15px] border border-transparent focus:bg-background focus:border-border transition-all placeholder:text-muted-foreground"
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {/* Chat Messages */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 hover-scrollbar">
+              {messages.map((msg, idx) => {
+                const isMine = msg.sender?._id === user?._id;
+                const prev = messages[idx - 1];
+                const showSpacer = prev && prev.sender?._id !== msg.sender?._id;
 
-                    <div>
-                      <div
-                        className={`rounded-2xl shadow-sm ${
-                          msg.messageType === "image"
-                            ? isMine ?"bg-linear-to-r from-blue-400 to-indigo-400 p-0.5 shadow-none": " bg-slate-200 text-slate-900 p-0.5 shadow-sm"
-                            : isMine
-                            ? "bg-linear-to-r from-blue-500 to-indigo-500 text-white px-4 py-2 rounded-xl shadow"
-                            : "bg-slate-200 text-black px-4 py-2"
-                        }`}
-                      >
-                        {msg.messageType === "image" && msg.imageUrl && (
+                return (
+                  <motion.div
+                    key={msg._id || idx}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className={clsx("flex flex-col", isMine ? "items-end" : "items-start", showSpacer && "mt-6")}
+                  >
+                    <div className={clsx(
+                      "relative max-w-[85%] md:max-w-[70%] rounded-2xl shadow-xs whitespace-pre-wrap break-words",
+                      msg.messageType === "image" ? "p-1" : "px-4 py-2.5",
+                      isMine
+                        ? "bg-primary text-primary-foreground rounded-br-none"
+                        : "bg-card text-card-foreground rounded-bl-none"
+                    )}>
+                      {msg.messageType === "image" && msg.imageUrl ? (
+                        <div className="relative group">
                           <img
                             src={msg.imageUrl}
-                            alt="Shared image"
-                            className="max-w-full max-h-64 rounded-lg cursor-pointer hover:opacity-95 transition-opacity border border-black/5"
+                            alt="Attachment"
+                            className="max-w-full sm:max-w-[320px] max-h-80 rounded-xl cursor-zoom-in hover:opacity-95 transition-opacity object-cover"
                             onClick={() => setPreviewImage(msg.imageUrl)}
                           />
-                        )}
-
-                        {/* TEXT MESSAGE */}
-                        {msg.content && msg.messageType !== "image" && (
-                          <div className="whitespace-pre-wrap">
-                            {msg.content}
+                          <div className="absolute bottom-1.5 right-1.5 bg-black/50 backdrop-blur-md text-white text-[10px] px-2 py-0.5 rounded-full font-medium">
+                            {formatTime(msg.createdAt)}
                           </div>
-                        )}
-                      </div>
-
-                      {/* TIME */}
-                      <div
-                        className={`text-xs mt-1 ${
-                          isMine
-                            ? "text-right text-slate-300"
-                            : "text-left text-slate-400"
-                        }`}
-                      >
-                        {formatTime(msg.createdAt)}
-                      </div>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="text-[15px] leading-relaxed block">
+                            {chatSearchQuery &&
+                              msg.content?.toLowerCase().includes(chatSearchQuery.toLowerCase()) ? (
+                              <span className="bg-yellow-200 dark:bg-yellow-400 text-black px-1 rounded">
+                                {msg.content}
+                              </span>
+                            ) : (
+                              msg.content
+                            )}
+                          </span>
+                          <div className={clsx(
+                            "text-[10px] mt-1 text-right font-medium",
+                            isMine ? "text-primary-foreground/70" : "text-muted-foreground"
+                          )}>
+                            {formatTime(msg.createdAt)}
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </div>
+                  </motion.div>
+                );
+              })}
+
+              {typingText && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex justify-start mb-4"
+                >
+                  <TypingIndicator />
+                </motion.div>
+              )}
+              <div ref={messagesEndRef} className="h-2" />
+            </div>
+
+            {/* Message Input Container */}
+            <div className="p-3 sm:p-4 bg-card shrink-0">
+              {uploading && (
+                <div className="absolute top-[-30px] left-1/2 -translate-x-1/2 bg-background shadow-md backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-primary animate-pulse z-20">
+                  Sending image...
                 </div>
-              );
-            })}
-          {previewImage && (
-            <div
-              className="fixed inset-0 bg-black/90 flex items-center justify-center z-50"
-              onClick={() => setPreviewImage(null)}
-            >
-              <img
-                src={previewImage}
-                alt="preview"
-                className="max-w-[90%] max-h-[90%] object-contain"
-              />
-              <div className="absolute top-4 right-4 text-white text-2xl cursor-pointer">
-                <IoCloseOutline />
+              )}
+              <div className="max-w-4xl mx-auto flex items-end gap-2 bg-muted/50 rounded-3xl p-1.5 md:p-2 border border-border focus-within:border-primary/50 focus-within:bg-background transition-all">
+                <div className="flex shrink-0">
+                  <label className="p-2 sm:p-2.5 rounded-full cursor-pointer hover:bg-muted text-muted-foreground transition-colors group">
+                    <Paperclip size={20} className="group-hover:text-primary transition-colors" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleImageUpload(file);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <textarea
+                  ref={inputRef}
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
+                  onInput={(e) => {
+                    onTyping();
+                    e.target.style.height = "auto";
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                  }}
+                  placeholder="Message"
+                  className="flex-1 max-h-[120px] min-h-[40px] bg-transparent border-0 focus:ring-0 resize-none py-2.5 px-2 text-[15px] outline-none placeholder:text-muted-foreground"
+                  rows={1}
+                />
+
+                <button
+                  onClick={sendMessage}
+                  disabled={!newMessage.trim() && !uploading}
+                  className={clsx(
+                    "p-2.5 rounded-full shrink-0 transition-all duration-200 shadow-sm",
+                    newMessage.trim()
+                      ? "bg-primary text-primary-foreground hover:scale-105 active:scale-95"
+                      : "bg-muted text-muted-foreground"
+                  )}
+                >
+                  <Send size={18} className={clsx(newMessage.trim() && "ml-0.5")} />
+                </button>
               </div>
             </div>
-          )}
+          </>
+        )}
 
-          {/* typing */}
-          {typingText && (
-            <div className="text-sm text-slate-500">
-              <TypingDots />{" "}
-              <span className="ml-2 text-slate-600">{typingText}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Input area */}
-        <div className="p-4 border-t bg-white">
-          <div className="max-w-4xl mx-auto flex items-center gap-3">
-            <label
-              className={`p-2 rounded-lg cursor-pointer transition ${
-                uploading
-                  ? "bg-gray-200 cursor-not-allowed"
-                  : "bg-slate-100 hover:bg-slate-200"
-              }`}
+        {/* Image Preview Modal */}
+        <AnimatePresence>
+          {previewImage && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] bg-background/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-8"
+              onClick={() => setPreviewImage(null)}
             >
-              <IoCamera
-                size={20}
-                className={uploading ? "text-gray-400" : "text-slate-600"}
+              <button className="absolute top-6 text-red-500 right-6 p-2 rounded-full bg-muted/50 text-foreground hover:bg-muted transition-colors cursor-pointer">
+                <X size={24} />
+              </button>
+              <motion.img
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                src={previewImage}
+                alt="Preview"
+                className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain border border-border"
+                onClick={(e) => e.stopPropagation()}
               />
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={uploading || !selectedUser}
-                onChange={(e) => {
-                  const file = e.target.files[0];
-                  if (file) {
-                    handleImageUpload(file);
-                    e.target.value = "";
-                  }
-                }}
-              />
-            </label>
-
-            <input
-              ref={inputRef}
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-              onInput={onTyping}
-              placeholder={
-                selectedUser
-                  ? `Message ${selectedUser.name}...`
-                  : "Select a user to chat"
-              }
-              className="flex-1 px-4 py-3 rounded-full border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-200 text-slate-800"
-              disabled={!selectedUser || uploading}
-            />
-
-            <button
-              onClick={sendMessage}
-              className={`p-3 rounded-full ${
-                selectedUser && !uploading
-                  ? "bg-blue-600 text-white hover:bg-blue-700"
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed"
-              }`}
-              aria-label="Send"
-              disabled={!selectedUser || uploading}
-            >
-              <IoSend size={18} />
-            </button>
-          </div>
-
-          {uploading && (
-            <div className="max-w-4xl mx-auto mt-2 text-center text-sm text-blue-600">
-              Uploading image...
-            </div>
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
       </main>
     </div>
   );
