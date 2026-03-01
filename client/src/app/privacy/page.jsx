@@ -197,7 +197,7 @@ export default function Privacy() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-semibold text-foreground min-w-[70px]">Website:</span>
-                    <a href="https://chit-for-chat.vercel.app/" className="text-primary hover:underline transition-all break-all">https://chit-for-chat.vercel.app/</a>
+                    <a href="https://chit-for-chat-client.vercel.app/" className="text-primary hover:underline transition-all break-all">https://chit-for-chat.vercel.app/</a>
                   </div>
                 </div>
               </div>
