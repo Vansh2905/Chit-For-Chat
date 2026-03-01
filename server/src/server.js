@@ -8,8 +8,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: [
-      "http://localhost:3000", 
-      "http://127.0.0.1:5500", 
+      "http://localhost:3000",
+      "http://127.0.0.1:5500",
       "http://localhost:5500",
       "https://chit-for-chat-client.vercel.app",
       process.env.CLIENT_URL
@@ -48,37 +48,31 @@ io.on("connection", (socket) => {
       // Save to database
       const message = await Message.create({
         sender: data.sender,
-        content: data.content,
+        content: data.content || "",   
         chatId: data.chatId,
         messageType: data.messageType || "text",
         imageUrl: data.imageUrl,
         deliveredTo: []
       });
 
-      // Update chat's latest message
-      await Chat.findByIdAndUpdate(data.chatId, { latestMessage: message._id });
+
+      await Chat.findByIdAndUpdate(data.chatId, {
+        latestMessage: message._id,
+        updatedAt: new Date()
+      }, { timestamps: false });
 
       // Populate sender info
       const populatedMessage = await Message.findById(message._id)
         .populate("sender", "name pic email");
 
-      // Emit to all users in the chat
-      io.to(data.chatId).emit("receive_message", {
-        ...populatedMessage.toObject(),
-        timestamp: message.createdAt
-      });
+      const msgObject = populatedMessage.toObject();
 
-      // Mark as delivered for online users
-      const chatUsers = await Chat.findById(data.chatId).populate("users");
-      if (chatUsers && chatUsers.users) {
-        const onlineUsers = chatUsers.users.filter(user => user.isOnline);
-        
-        if (onlineUsers.length > 0) {
-          await Message.findByIdAndUpdate(message._id, {
-            $addToSet: { deliveredTo: { $each: onlineUsers.map(u => u._id) } }
-          });
-        }
-      }
+      // Emit to OTHER users in the chat room (not back to sender)
+      // The sender already has the message in their own state
+      socket.to(data.chatId).emit("receive_message", msgObject);
+
+      // Also echo back to sender with the DB _id so client can deduplicate
+      socket.emit("receive_message", msgObject);
 
     } catch (error) {
       console.error("Error sending message:", error);
@@ -116,7 +110,7 @@ io.on("connection", (socket) => {
           readBy: { user: data.userId, readAt: new Date() }
         }
       });
-      
+
       socket.to(data.chatId).emit("message_read_update", {
         messageId: data.messageId,
         userId: data.userId,
@@ -130,13 +124,13 @@ io.on("connection", (socket) => {
   socket.on("disconnect", async () => {
     const user = users.get(socket.id);
     if (user) {
-      await User.findByIdAndUpdate(user._id, { 
-        isOnline: false, 
-        lastSeen: new Date() 
+      await User.findByIdAndUpdate(user._id, {
+        isOnline: false,
+        lastSeen: new Date()
       });
-      socket.broadcast.emit("user_status_change", { 
-        userId: user._id, 
-        isOnline: false 
+      socket.broadcast.emit("user_status_change", {
+        userId: user._id,
+        isOnline: false
       });
       users.delete(socket.id);
     }

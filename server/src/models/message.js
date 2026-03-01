@@ -3,7 +3,7 @@ import mongoose, { Schema } from "mongoose";
 const messageSchema = new Schema(
   {
     sender: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    content: { type: String, trim: true, required: true, maxlength: 1000 },
+    content: { type: String, trim: true, default: "", maxlength: 5000 }, 
     chatId: { type: Schema.Types.ObjectId, ref: "Chat", required: true },
     messageType: { type: String, enum: ["text", "image"], default: "text" },
     imageUrl: String,

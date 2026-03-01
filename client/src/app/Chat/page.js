@@ -56,7 +56,9 @@ export default function Chat() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState(null);
   const [currentChat, setCurrentChat] = useState(null);
+  const currentChatRef = useRef(null);
   const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [socket, setSocket] = useState(null);
   const [typingText, setTypingText] = useState("");
@@ -69,6 +71,9 @@ export default function Chat() {
   const [showSidebarOnMobile, setShowSidebarOnMobile] = useState(true);
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState("");
+  const [previousChats, setPreviousChats] = useState([]);
+  // Keep a ref to the logged-in user's _id for synchronous access in memos/callbacks
+  const myUserIdRef = useRef(null);
   useEffect(() => {
     if (previewImage) {
       document.body.classList.add("image-preview-active");
@@ -82,6 +87,10 @@ export default function Chat() {
   }, [previewImage]);
 
   useEffect(() => {
+    currentChatRef.current = currentChat;
+  }, [currentChat]);
+
+  useEffect(() => {
     const token = localStorage.getItem("token");
     const userData = localStorage.getItem("user");
     if (!token) {
@@ -90,9 +99,11 @@ export default function Chat() {
     }
     if (userData) {
       const parsed = JSON.parse(userData);
+      myUserIdRef.current = parsed._id; // set synchronously before any async call
       setUserName(parsed.name);
       setUser(parsed);
       fetchUsers(token);
+      fetchChats(token);
       initSocket(parsed);
     } else {
       setLoading(false);
@@ -117,8 +128,13 @@ export default function Chat() {
 
     s.on("receive_message", (message) => {
       const msgChatId = message.chatId?._id || message.chatId;
-      if (currentChat && msgChatId === currentChat._id) {
-        setMessages((m) => [...m, message]);
+      const activeChatId = currentChatRef.current?._id;
+
+      if (activeChatId && msgChatId === activeChatId) {
+        setMessages((m) => {
+          if (message._id && m.some((x) => x._id === message._id)) return m;
+          return [...m, message];
+        });
       } else {
         const senderId = message.sender?._id || message.sender;
         setUnreadCounts((prev) => ({
@@ -126,6 +142,9 @@ export default function Chat() {
           [senderId]: (prev[senderId] || 0) + 1,
         }));
       }
+
+      const tok = localStorage.getItem("token");
+      if (tok) fetchChats(tok);
       if (document.hidden && Notification.permission === "granted") {
         try {
           const n = new Notification(`${message.sender?.name || "New message"}`, {
@@ -161,29 +180,49 @@ export default function Chat() {
     }
   };
 
+  const fetchChats = async (token) => {
+    try {
+      const res = await fetch("https://chit-for-chat.onrender.com/api/chats", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setPreviousChats(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const openChat = async (chatUser) => {
     setSelectedUser(chatUser);
     setShowSidebarOnMobile(false);
+    setMessages([]);
     setUnreadCounts((prev) => ({ ...prev, [chatUser._id]: 0 }));
 
-    const token = localStorage.getItem("token");
-    const res = await fetch("https://chit-for-chat.onrender.com/api/chats", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ userId: chatUser._id }),
-    });
-    const chat = await res.json();
-    if (res.ok) {
-      setCurrentChat(chat);
-      fetchMessages(chat._id);
-      socket?.emit("join_chat", {
-        _id: user._id,
-        chatId: chat._id,
-        name: user.name,
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("https://chit-for-chat.onrender.com/api/chats", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId: chatUser._id }),
       });
+      const chat = await res.json();
+      if (res.ok) {
+        setCurrentChat(chat);
+        currentChatRef.current = chat;
+        setMessagesLoading(true);
+        await fetchMessages(chat._id);
+        socket?.emit("join_chat", {
+          _id: user._id,
+          chatId: chat._id,
+          name: user.name,
+        });
+        fetchChats(token);
+      }
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -194,9 +233,12 @@ export default function Chat() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) setMessages(data);
+      if (res.ok) setMessages(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
+      setMessages([]);
+    } finally {
+      setMessagesLoading(false);
     }
   };
 
@@ -208,14 +250,6 @@ export default function Chat() {
       chatId: currentChat._id,
     };
     socket.emit("send_message", payload);
-    setMessages((m) => [
-      ...m,
-      {
-        ...payload,
-        createdAt: new Date().toISOString(),
-        sender: { _id: user._id, name: user.name, pic: user.pic },
-      },
-    ]);
     setNewMessage("");
     socket.emit("typing_stop", { userId: user._id, chatId: currentChat._id });
     inputRef.current?.focus();
@@ -233,17 +267,6 @@ export default function Chat() {
         messageType: "image",
         imageUrl,
       });
-      setMessages((m) => [
-        ...m,
-        {
-          sender: { _id: user._id, name: user.name, pic: user.pic },
-          content: "Image",
-          chatId: currentChat._id,
-          messageType: "image",
-          imageUrl,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
     } catch (error) {
       console.error("Upload failed:", error);
     } finally {
@@ -264,10 +287,32 @@ export default function Chat() {
     }, 1500);
   };
 
-  const filteredUsers = useMemo(() => {
-    if (!searchQuery) return users;
-    return users.filter((u) => u.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [users, searchQuery]);
+  const sidebarItems = useMemo(() => {
+    // Use the ref for synchronous, always-available logged-in user ID
+    const myId = myUserIdRef.current || user?._id;
+    const seenIds = new Map(); // Map<userId, item> — deduplicates by user _id
+
+    // First: entries from previous chats (sorted newest-first by server)
+    previousChats.forEach((chat) => {
+      const other = chat.users?.find((u) => u != null && u._id !== myId);
+      if (!other) return;
+      // Only keep the first (most recent) entry per user
+      if (!seenIds.has(other._id)) {
+        seenIds.set(other._id, { ...other, _chatMeta: chat });
+      }
+    });
+
+    // Then: users with no existing chat at all
+    users.forEach((u) => {
+      if (!seenIds.has(u._id)) {
+        seenIds.set(u._id, u);
+      }
+    });
+
+    const all = Array.from(seenIds.values());
+    if (!searchQuery) return all;
+    return all.filter((u) => u.name?.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [previousChats, users, user, searchQuery]);
 
   if (loading) {
     return (
@@ -308,16 +353,18 @@ export default function Chat() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 pb-4 hover-scrollbar">
-          {filteredUsers.length === 0 && (
+          {sidebarItems.length === 0 && (
             <div className="p-4 text-center text-sm text-muted-foreground mt-10">
-              No users found matching your search.
+              No users found.
             </div>
           )}
 
           <AnimatePresence>
-            {filteredUsers.map((u) => {
+            {sidebarItems.map((u) => {
               const unread = unreadCounts[u._id] || 0;
               const isSelected = selectedUser?._id === u._id;
+              const latestMsg = u._chatMeta?.latestMessage;
+              const chatTime = u._chatMeta?.updatedAt;
 
               return (
                 <motion.div
@@ -336,6 +383,7 @@ export default function Chat() {
                       src={u.pic && u.pic !== "default-avatar.png" ? u.pic : PLACEHOLDER_AVATAR}
                       alt={u.name}
                       className="w-12 h-12 rounded-full object-cover shrink-0 bg-background"
+                      onClick={() => setPreviewImage(u.pic)}
                       onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
                     />
                     {u.isOnline && (
@@ -348,9 +396,9 @@ export default function Chat() {
                       <h3 className={clsx("text-sm font-semibold truncate", isSelected ? "text-primary-foreground" : "text-foreground")}>
                         {u.name}
                       </h3>
-                      {!isSelected && u.lastSeen && (
-                        <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
-                          {new Date(u.lastSeen).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      {chatTime && (
+                        <span className={clsx("text-[10px] whitespace-nowrap ml-2", isSelected ? "text-primary-foreground/70" : "text-muted-foreground")}>
+                          {new Date(chatTime).toLocaleDateString([], { month: "short", day: "numeric" })}
                         </span>
                       )}
                     </div>
@@ -358,7 +406,11 @@ export default function Chat() {
                       "text-xs truncate",
                       isSelected ? "text-primary-foreground/80" : "text-muted-foreground"
                     )}>
-                      {u.isOnline ? "Online now" : "Offline"}
+                      {latestMsg
+                        ? latestMsg.messageType === "image"
+                          ? "📷 Photo"
+                          : latestMsg.content
+                        : u.isOnline ? "Online now" : "Offline"}
                     </p>
                   </div>
 
@@ -410,6 +462,7 @@ export default function Chat() {
                     src={selectedUser.pic || PLACEHOLDER_AVATAR}
                     alt={selectedUser.name}
                     className="w-10 h-10 rounded-full object-cover shrink-0 cursor-pointer"
+                    onClick={() => setPreviewImage(selectedUser.pic)}
                     onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
                   />
                   {selectedUser.isOnline && (
@@ -458,6 +511,23 @@ export default function Chat() {
             </AnimatePresence>
             {/* Chat Messages */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 hover-scrollbar">
+              {messagesLoading ? (
+                <div className="h-full flex items-center justify-center">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                  >
+                    <div className="w-7 h-7 border-4 border-primary border-t-transparent rounded-full" />
+                  </motion.div>
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center text-muted-foreground">
+                    <div className="mb-2 text-lg">No messages yet</div>
+                    <div>Start the conversation with {selectedUser.name}</div>
+                  </div>
+                </div>
+              ) : null}
               {messages.map((msg, idx) => {
                 const isMine = msg.sender?._id === user?._id;
                 const prev = messages[idx - 1];
