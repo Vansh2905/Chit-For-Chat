@@ -79,4 +79,38 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// Google OAuth sync
+router.post("/google", async (req, res) => {
+  try {
+    const { email, name, pic } = req.body;
+    
+    let user = await User.findOne({ email: email.toLowerCase() });
+    
+    if (!user) {
+      user = await User.create({
+        name: name.trim(),
+        email: email.toLowerCase(),
+        pic: pic || undefined,
+        password: "google-oauth"
+      });
+    } else {
+      await User.findByIdAndUpdate(user._id, {
+        isOnline: true,
+        lastSeen: new Date(),
+        ...(pic && { pic })
+      });
+    }
+    
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      pic: user.pic,
+      token: generateToken(user._id),
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 export default router;
