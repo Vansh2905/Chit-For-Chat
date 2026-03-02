@@ -1,7 +1,7 @@
 // app/chat/page.js
 "use client";
 import React, { useEffect, useRef, useState, useMemo } from "react";
-import { Send, Camera, X, MessageSquare, Search, MoreVertical, Paperclip, ChevronLeft } from "lucide-react";
+import { Send, X, MessageSquare, Search, Paperclip, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import io from "socket.io-client";

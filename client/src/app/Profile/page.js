@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { uploadToCloudinary } from "../utils/cloudinary";
-import { motion } from 'framer-motion';
-import { LogOut, MessageSquare, Settings, User, Mail, FileText, ChevronLeft, Plus } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { LogOut, MessageSquare, X,Settings, User, Mail, FileText, ChevronLeft, Plus } from 'lucide-react';
 import clsx from 'clsx';
 
 const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
@@ -13,6 +13,7 @@ export default function Profile() {
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
   const [loading, setLoading] = useState(true);
+  const [previewImage, setPreviewImage] = useState(null);
   const [updating, setUpdating] = useState(false);
   const router = useRouter();
 
@@ -153,7 +154,8 @@ export default function Profile() {
             <img
               src={user?.pic || PLACEHOLDER_AVATAR}
               alt="Profile"
-              className="w-28 h-28 rounded-full mx-auto border-4 border-background shadow-lg object-cover bg-muted"
+              onClick={() => setPreviewImage(user?.pic)}
+              className="w-28 h-28 rounded-full mx-auto border-4 border-background shadow-lg cursor-pointer object-cover bg-muted"
               onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
             />
             <label className="absolute bottom-0 right-0 p-2 bg-primary text-primary-foreground rounded-full shadow-md hover:scale-110 transition-transform disabled:opacity-50 cursor-pointer" title="Change Avatar (Not Implemented)">
@@ -251,6 +253,30 @@ export default function Profile() {
           </button>
         </div>
       </motion.div>
+<AnimatePresence>
+          {previewImage && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] bg-background/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-8"
+              onClick={() => setPreviewImage(null)}
+            >
+              <button className="absolute top-6 text-red-500 right-6 p-2 rounded-full bg-muted/50 text-foreground hover:bg-muted transition-colors cursor-pointer">
+                <X size={24} />
+              </button>
+              <motion.img
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                src={previewImage}
+                alt="Preview"
+                className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain border border-border"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
     </div>
   );
 }
