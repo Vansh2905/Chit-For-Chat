@@ -11,23 +11,31 @@ const Navbar = () => {
   const [loaded, setLoaded] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
 
-useEffect(() => {
-  const storedUser = localStorage.getItem("user");
-  if (storedUser) {
-    setCurrentUser(JSON.parse(storedUser));
-  }
-}, []);
   const Router = useRouter();
 
   useEffect(() => {
-    try {
-      const token = typeof window !== "undefined" && localStorage.getItem("token");
+    const updateAuthState = () => {
+      const token = localStorage.getItem("token");
+      const storedUser = localStorage.getItem("user");
+      
       setIsLoggedIn(!!token);
-    } catch (err) {
-      setIsLoggedIn(false);
-    } finally {
+      if (storedUser) {
+        setCurrentUser(JSON.parse(storedUser));
+      } else {
+        setCurrentUser(null);
+      }
       setLoaded(true);
-    }
+    };
+
+    updateAuthState();
+    
+    window.addEventListener('storage', updateAuthState);
+    window.addEventListener('authStateChange', updateAuthState);
+    
+    return () => {
+      window.removeEventListener('storage', updateAuthState);
+      window.removeEventListener('authStateChange', updateAuthState);
+    };
   }, []);
 
   const handleLogout = () => {

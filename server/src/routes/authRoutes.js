@@ -90,14 +90,12 @@ router.post("/google", async (req, res) => {
       user = await User.create({
         name: name.trim(),
         email: email.toLowerCase(),
-        pic: pic || undefined,
         password: "google-oauth"
       });
     } else {
       await User.findByIdAndUpdate(user._id, {
         isOnline: true,
-        lastSeen: new Date(),
-        ...(pic && { pic })
+        lastSeen: new Date()
       });
     }
     

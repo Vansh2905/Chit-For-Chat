@@ -8,6 +8,7 @@ import io from "socket.io-client";
 import { uploadToCloudinary } from "../utils/cloudinary";
 import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
+import { useSession } from "next-auth/react";
 
 const PLACEHOLDER_AVATAR =
   "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
@@ -50,6 +51,7 @@ function TypingIndicator() {
 
 export default function Chat() {
   const router = useRouter();
+  const { data: session, status: sessionStatus } = useSession();
   const [user, setUser] = useState(null);
   const [userName, setUserName] = useState("");
   const [users, setUsers] = useState([]);
@@ -72,7 +74,6 @@ export default function Chat() {
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState("");
   const [previousChats, setPreviousChats] = useState([]);
-  // Keep a ref to the logged-in user's _id for synchronous access in memos/callbacks
   const myUserIdRef = useRef(null);
   useEffect(() => {
     if (previewImage) {
@@ -91,13 +92,12 @@ export default function Chat() {
   }, [currentChat]);
 
   useEffect(() => {
+    if (sessionStatus === "loading") return;
+
     const token = localStorage.getItem("token");
     const userData = localStorage.getItem("user");
-    if (!token) {
-      router.push("/Login");
-      return;
-    }
-    if (userData) {
+
+    if (token && userData) {
       const parsed = JSON.parse(userData);
       myUserIdRef.current = parsed._id;
       setUserName(parsed.name);
@@ -105,9 +105,41 @@ export default function Chat() {
       fetchUsers(token);
       fetchChats(token);
       initSocket(parsed);
+      setLoading(false);
+    } else if (session?.user) {
+      const syncGoogleAuth = async () => {
+        try {
+          const res = await fetch("https://chit-for-chat.onrender.com/api/auth/google", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: session.user.email,
+              name: session.user.name
+            }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            localStorage.setItem("token", data.token);
+            localStorage.setItem("user", JSON.stringify(data));
+            window.dispatchEvent(new Event('authStateChange'));
+            myUserIdRef.current = data._id;
+            setUserName(data.name);
+            setUser(data);
+            fetchUsers(data.token);
+            fetchChats(data.token);
+            initSocket(data);
+          }
+        } catch (err) {
+          console.error("Sync error:", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      syncGoogleAuth();
+    } else {
+      router.push("/Login");
     }
-    setLoading(false);
-  }, [router]);
+  }, [router, session, sessionStatus]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
