@@ -99,17 +99,14 @@ export default function Chat() {
     }
     if (userData) {
       const parsed = JSON.parse(userData);
-      myUserIdRef.current = parsed._id; // set synchronously before any async call
+      myUserIdRef.current = parsed._id;
       setUserName(parsed.name);
       setUser(parsed);
       fetchUsers(token);
       fetchChats(token);
       initSocket(parsed);
-    } else {
-      setLoading(false);
     }
     setLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
