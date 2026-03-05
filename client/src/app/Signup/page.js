@@ -54,14 +54,18 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-65px)] flex items-center justify-center bg-background px-4">
+    <div className="min-h-screen flex items-center justify-center bg-[#E5DDD5] dark:bg-[#0B141A] px-4 relative overflow-hidden">
+      {/* Decorative Background Elements */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
+
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="w-full max-w-md"
+        className="w-full max-w-md relative z-10"
       >
-        <div className="bg-card border border-border rounded-3xl shadow-xl overflow-hidden mb-8">
+        <div className="bg-card/80 backdrop-blur-xl border border-border rounded-3xl shadow-2xl overflow-hidden mb-8">
           <div className="p-8 sm:p-10">
             <div className="flex justify-center mb-6">
               <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center">
@@ -122,11 +126,10 @@ export default function Signup() {
               <button
                 type="submit"
                 disabled={loading}
-                className={`w-full py-3.5 mt-4 rounded-xl font-semibold text-white transition-all shadow-md ${
-                  loading
+                className={`w-full py-3.5 mt-4 rounded-xl font-semibold text-white transition-all shadow-md ${loading
                     ? "bg-primary/70 cursor-not-allowed"
                     : "bg-primary hover:bg-primary/90 hover:shadow-lg active:scale-[0.98]"
-                }`}
+                  }`}
               >
                 {loading ? "Signing up..." : "Sign Up"}
               </button>
