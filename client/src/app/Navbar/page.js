@@ -4,7 +4,7 @@ import Link from "next/link";
 import { MessageSquare, Home, LogOut, User as UserIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
+const PLACEHOLDER_AVATAR = "https://t4.ftcdn.net/jpg/05/86/91/55/240_F_586915596_gPqgxPdgdJ4OXjv6GCcDWNxTjKDWZ3JD.jpg";
 
 const Navbar = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);

@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { LogOut, MessageSquare, X,Settings, User, Mail, FileText, ChevronLeft, Plus } from 'lucide-react';
 import clsx from 'clsx';
 
-const PLACEHOLDER_AVATAR = "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
+const PLACEHOLDER_AVATAR = "https://t4.ftcdn.net/jpg/05/86/91/55/240_F_586915596_gPqgxPdgdJ4OXjv6GCcDWNxTjKDWZ3JD.jpg";
 
 export default function Profile() {
   const [user, setUser] = useState(null);
@@ -69,12 +69,12 @@ export default function Profile() {
   const file = e.target.files[0];
   if (!file) return;
 
-  // 1️⃣ Upload to Cloudinary
+  //  Upload to Cloudinary
   const imageUrl = await uploadToCloudinary(file);
 
   const token = localStorage.getItem("token");
 
-  // 2️⃣ Save URL to MongoDB
+  //  Save URL to MongoDB
   const res = await fetch(
     "https://chit-for-chat.onrender.com/api/users/profile",
     {
@@ -154,7 +154,7 @@ export default function Profile() {
             <img
               src={user?.pic || PLACEHOLDER_AVATAR}
               alt="Profile"
-              onClick={() => setPreviewImage(user?.pic)}
+              onClick={() => setPreviewImage(user?.pic||PLACEHOLDER_AVATAR)}
               className="w-28 h-28 rounded-full mx-auto border-4 border-background shadow-lg cursor-pointer object-cover bg-muted"
               onError={(e) => { e.target.src = PLACEHOLDER_AVATAR; }}
             />
