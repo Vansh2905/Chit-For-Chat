@@ -259,7 +259,7 @@ export default function Profile() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] bg-background/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-8"
+              className="fixed inset-0 z-100 bg-background/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-8"
               onClick={() => setPreviewImage(null)}
             >
               <button className="absolute top-6 text-red-500 right-6 p-2 rounded-full bg-muted/50 text-foreground hover:bg-muted transition-colors cursor-pointer">
