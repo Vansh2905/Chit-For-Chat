@@ -13,7 +13,7 @@ const userSchema = new Schema(
     pic: {
       type: String,
       default:
-        "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg",
+        "https://t4.ftcdn.net/jpg/05/86/91/55/240_F_586915596_gPqgxPdgdJ4OXjv6GCcDWNxTjKDWZ3JD.jpg",
     },
     bio: { type: String, default: "", maxlength: 200 },
     isOnline: { type: Boolean, default: false },
