@@ -1,6 +1,7 @@
 import express from "express";
 import { Chat } from "../models/message.js";
 import { protect } from "../middleware/authMiddleware.js";
+import redisClient from "../config/redis.js";
 
 const router = express.Router();
 
@@ -30,6 +31,11 @@ router.post("/", protect, async (req, res) => {
     });
 
     chat = await Chat.findById(chat._id).populate("users", "-password");
+
+    // Invalidate chats cache for both users
+    await redisClient.del(`chats:${req.user._id}`);
+    await redisClient.del(`chats:${userId}`);
+
     res.status(201).json(chat);
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -39,6 +45,13 @@ router.post("/", protect, async (req, res) => {
 // Get all chats for logged in user
 router.get("/", protect, async (req, res) => {
   try {
+    const cacheKey = `chats:${req.user._id}`;
+    const cachedChats = await redisClient.get(cacheKey);
+
+    if (cachedChats) {
+      return res.json(JSON.parse(cachedChats));
+    }
+
     const chats = await Chat.find({
       users: { $elemMatch: { $eq: req.user._id } }
     })
@@ -46,6 +59,7 @@ router.get("/", protect, async (req, res) => {
     .populate("latestMessage")
     .sort({ updatedAt: -1 });
 
+    await redisClient.setEx(cacheKey, 120, JSON.stringify(chats));
     res.json(chats);
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -75,6 +89,12 @@ router.post("/group", protect, async (req, res) => {
     });
 
     const fullChat = await Chat.findById(chat._id).populate("users", "-password");
+
+    // Invalidate chats cache for all group members
+    for (const memberId of users) {
+      await redisClient.del(`chats:${memberId}`);
+    }
+
     res.status(201).json(fullChat);
   } catch (error) {
     res.status(500).json({ message: "Server error" });

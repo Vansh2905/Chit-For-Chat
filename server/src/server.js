@@ -3,6 +3,7 @@ import { Server } from "socket.io";
 import app from "./app.js";
 import { Message, Chat } from "./models/message.js";
 import User from "./models/user.js";
+import redisClient from "./config/redis.js";
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -60,6 +61,14 @@ io.on("connection", (socket) => {
         latestMessage: message._id,
         updatedAt: new Date()
       }, { timestamps: false });
+
+      // Invalidate caches
+      await redisClient.del(`messages:${data.chatId}`);
+      if (chat && chat.users) {
+        for (const user of chat.users) {
+          await redisClient.del(`chats:${user.toString()}`);
+        }
+      }
 
       // Populate sender info
       const populatedMessage = await Message.findById(message._id)

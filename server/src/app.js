@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import connectDB from "./config/db.js";
+import { connectRedis } from "./config/redis.js";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
@@ -10,6 +11,7 @@ import uploadRoutes from "./routes/uploadRoutes.js";
 
 dotenv.config();
 connectDB();
+connectRedis();
 
 const app = express();
 

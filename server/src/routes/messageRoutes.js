@@ -1,6 +1,7 @@
 import express from "express";
 import Message, { Chat } from "../models/message.js";
 import { protect } from "../middleware/authMiddleware.js";
+import redisClient from "../config/redis.js";
 
 const router = express.Router();
 
@@ -35,6 +36,16 @@ router.post("/", protect, async (req, res) => {
       .populate("sender", "name pic email")
       .populate("chatId");
 
+    // Invalidate caches
+    await redisClient.del(`messages:${chatId}`);
+    
+    const chat = await Chat.findById(chatId);
+    if (chat && chat.users) {
+      for (const user of chat.users) {
+        await redisClient.del(`chats:${user.toString()}`);
+      }
+    }
+
     res.status(201).json(populatedMessage);
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -46,10 +57,19 @@ router.get("/:chatId", protect, async (req, res) => {
   try {
     const { chatId } = req.params;
     
+    const cacheKey = `messages:${chatId}`;
+    const cachedMessages = await redisClient.get(cacheKey);
+
+    if (cachedMessages) {
+      return res.json(JSON.parse(cachedMessages));
+    }
+    
     const messages = await Message.find({ chatId })
       .populate("sender", "name pic email")
       .populate("readBy.user", "name")
       .sort({ createdAt: 1 });
+    
+    await redisClient.setEx(cacheKey, 3600, JSON.stringify(messages)); // Cache for 1 hour
     
     res.json(messages);
   } catch (error) {
