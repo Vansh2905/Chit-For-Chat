@@ -1,10 +1,12 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { uploadToCloudinary } from "../utils/cloudinary";
+import { uploadImage } from "../utils/uploadImage";
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogOut, MessageSquare, X,Settings, User, Mail, FileText, ChevronLeft, Plus } from 'lucide-react';
 import clsx from 'clsx';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 const PLACEHOLDER_AVATAR = "https://t4.ftcdn.net/jpg/05/86/91/55/240_F_586915596_gPqgxPdgdJ4OXjv6GCcDWNxTjKDWZ3JD.jpg";
 
@@ -42,7 +44,7 @@ export default function Profile() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("https://chit-for-chat.onrender.com/api/users/profile", {
+      const res = await fetch(`${API_BASE}/api/users/profile`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -66,35 +68,40 @@ export default function Profile() {
     }
   };
   const handleProfileUpload = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+    const file = e.target.files[0];
+    if (!file) return;
 
-  //  Upload to Cloudinary
-  const imageUrl = await uploadToCloudinary(file);
-
-  const token = localStorage.getItem("token");
-
-  //  Save URL to MongoDB
-  const res = await fetch(
-    "https://chit-for-chat.onrender.com/api/users/profile",
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ pic: imageUrl }),
+    const token = localStorage.getItem("token");
+    if (!token) {
+      router.push("/Login");
+      return;
     }
-  );
 
-  const updatedUser = await res.json();
+    try {
+      const imageUrl = await uploadImage(file, token);
+      const res = await fetch(`${API_BASE}/api/users/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pic: imageUrl }),
+      });
 
-  if (res.ok) {
-    // 3️⃣ Update local storage
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    alert("Profile updated successfully!");
-  }
-};
+      const updatedUser = await res.json();
+
+      if (res.ok) {
+        localStorage.setItem("user", JSON.stringify(updatedUser));
+        setUser(updatedUser);
+        alert("Profile updated successfully!");
+      } else {
+        alert(updatedUser.message || "Profile picture update failed");
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Upload failed");
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem("token");

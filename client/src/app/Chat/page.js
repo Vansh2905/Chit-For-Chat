@@ -1,14 +1,16 @@
 // app/chat/page.js
 "use client";
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { Send, X, MessageSquare, Search, Paperclip, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import io from "socket.io-client";
-import { uploadToCloudinary } from "../utils/cloudinary";
+import { uploadImage } from "../utils/uploadImage";
 import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 const PLACEHOLDER_AVATAR =
   "https://t4.ftcdn.net/jpg/05/86/91/55/240_F_586915596_gPqgxPdgdJ4OXjv6GCcDWNxTjKDWZ3JD.jpg";
@@ -74,7 +76,12 @@ export default function Chat() {
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [chatSearchQuery, setChatSearchQuery] = useState("");
   const [previousChats, setPreviousChats] = useState([]);
+  const [socketError, setSocketError] = useState(null);
   const myUserIdRef = useRef(null);
+  const socketRef = useRef(null);
+
+  const isSocketAuthError = (message = "") =>
+    /authentication failed|token required|invalid token|unauthorized/i.test(message);
   useEffect(() => {
     if (previewImage) {
       document.body.classList.add("image-preview-active");
@@ -104,30 +111,39 @@ export default function Chat() {
       setUser(parsed);
       fetchUsers(token);
       fetchChats(token);
-      initSocket(parsed);
       setLoading(false);
     } else if (session?.user) {
       const syncGoogleAuth = async () => {
+        const idToken = session.idToken;
+        if (!idToken) {
+          await signIn("google", { callbackUrl: "/Chat" });
+          setLoading(false);
+          return;
+        }
+
         try {
-          const res = await fetch("https://chit-for-chat.onrender.com/api/auth/google", {
+          const res = await fetch(`${API_BASE}/api/auth/google`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: session.user.email,
-              name: session.user.name
-            }),
+            body: JSON.stringify({ idToken }),
           });
           const data = await res.json();
+          if (res.status === 401) {
+            await signIn("google", { callbackUrl: "/Chat" });
+            return;
+          }
           if (res.ok) {
             localStorage.setItem("token", data.token);
             localStorage.setItem("user", JSON.stringify(data));
-            window.dispatchEvent(new Event('authStateChange'));
+            window.dispatchEvent(new Event("authStateChange"));
             myUserIdRef.current = data._id;
             setUserName(data.name);
             setUser(data);
             fetchUsers(data.token);
             fetchChats(data.token);
-            initSocket(data);
+          } else {
+            console.error("Google sync failed:", data.message);
+            router.push("/Login");
           }
         } catch (err) {
           console.error("Sync error:", err);
@@ -145,14 +161,30 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingText]);
 
-  const initSocket = (userData) => {
-    const s = io("https://chit-for-chat.onrender.com", {
-      transports: ["websocket", "polling"],
-    });
-    setSocket(s);
-
+  const attachSocketListeners = useCallback((s) => {
     s.on("connect", () => {
-      s.emit("user_online", userData._id);
+      setSocketError(null);
+      s.emit("user_online");
+    });
+
+    s.on("connect_error", (err) => {
+      const message = err?.message || "Connection failed";
+      console.error("[Socket] Authentication or connection error:", message);
+
+      if (isSocketAuthError(message)) {
+        s.io.opts.reconnection = false;
+        s.disconnect();
+        setSocketError("Your session has expired or is invalid. Please log in again.");
+        router.push("/Login");
+        return;
+      }
+
+      setSocketError("Connecting to chat server…");
+    });
+
+    s.io.on("reconnect_failed", () => {
+      console.error("[Socket] Reconnection failed after maximum attempts");
+      setSocketError("Unable to connect to the chat server. Please refresh the page.");
     });
 
     s.on("receive_message", (message) => {
@@ -193,13 +225,66 @@ export default function Chat() {
     });
 
     s.on("user_stop_typing", () => setTypingText(""));
+  }, [router]);
 
-    return () => s.disconnect();
-  };
+  useEffect(() => {
+    if (!user?._id) return;
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setSocketError("Not authenticated. Please log in again.");
+      router.push("/Login");
+      return;
+    }
+
+    if (socketRef.current) {
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+
+    const s = io(API_BASE, {
+      auth: { token },
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+
+    attachSocketListeners(s);
+    socketRef.current = s;
+    setSocket(s);
+
+    return () => {
+      s.removeAllListeners();
+      s.disconnect();
+      socketRef.current = null;
+      setSocket(null);
+    };
+  }, [user?._id, attachSocketListeners, router]);
+
+  useEffect(() => {
+    const onAuthStateChange = () => {
+      const token = localStorage.getItem("token");
+      if (!token || !socketRef.current) return;
+
+      socketRef.current.auth = { token };
+      socketRef.current.io.opts.reconnection = true;
+      setSocketError(null);
+
+      if (socketRef.current.connected) {
+        socketRef.current.disconnect();
+      }
+      socketRef.current.connect();
+    };
+
+    window.addEventListener("authStateChange", onAuthStateChange);
+    return () => window.removeEventListener("authStateChange", onAuthStateChange);
+  }, []);
 
   const fetchUsers = async (token) => {
     try {
-      const res = await fetch("https://chit-for-chat.onrender.com/api/users", {
+      const res = await fetch(`${API_BASE}/api/users`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -211,7 +296,7 @@ export default function Chat() {
 
   const fetchChats = async (token) => {
     try {
-      const res = await fetch("https://chit-for-chat.onrender.com/api/chats", {
+      const res = await fetch(`${API_BASE}/api/chats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -229,7 +314,7 @@ export default function Chat() {
 
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("https://chit-for-chat.onrender.com/api/chats", {
+      const res = await fetch(`${API_BASE}/api/chats`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -258,7 +343,7 @@ export default function Chat() {
   const fetchMessages = async (chatId) => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`https://chit-for-chat.onrender.com/api/messages/${chatId}`, {
+      const res = await fetch(`${API_BASE}/api/messages/${chatId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -286,9 +371,11 @@ export default function Chat() {
 
   const handleImageUpload = async (file) => {
     if (!file || !currentChat) return;
+    const token = localStorage.getItem("token");
+    if (!token) return;
     setUploading(true);
     try {
-      const imageUrl = await uploadToCloudinary(file);
+      const imageUrl = await uploadImage(file, token);
       socket.emit("send_message", {
         sender: user._id,
         content: "Image",
@@ -358,6 +445,14 @@ export default function Chat() {
 
   return (
     <div className="h-[calc(100vh-65px)] flex bg-background overflow-hidden relative">
+      {socketError && (
+        <div
+          role="alert"
+          className="absolute top-0 left-0 right-0 z-30 px-4 py-2 text-sm text-center bg-destructive/90 text-destructive-foreground"
+        >
+          {socketError}
+        </div>
+      )}
       {/* Sidebar */}
       <aside
         className={clsx(

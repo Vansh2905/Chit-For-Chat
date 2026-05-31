@@ -18,6 +18,9 @@ const messageSchema = new Schema(
   { timestamps: true }
 );
 
+// Index messages by chatId and createdAt
+messageSchema.index({ chatId: 1, createdAt: 1 });
+
 const chatSchema = new Schema(
   {
     chatName: { type: String, trim: true, maxlength: 100 },
@@ -35,6 +38,9 @@ const chatSchema = new Schema(
   },
   { timestamps: true }
 );
+
+// Index chats by users array and updatedAt
+chatSchema.index({ users: 1, updatedAt: -1 });
 
 chatSchema.pre("save", function (next) {
   if (this.isGroupChat && (!this.chatName || this.chatName.trim() === "")) {

@@ -1,7 +1,9 @@
 import express from "express";
 import { Chat } from "../models/message.js";
 import { protect } from "../middleware/authMiddleware.js";
-import redisClient from "../config/redis.js";
+import redisClient, { redisAvailable } from "../config/redis.js";
+import { scanAndUnlink } from "../utils/redisHelpers.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
@@ -12,6 +14,11 @@ router.post("/", protect, async (req, res) => {
     
     if (!userId) {
       return res.status(400).json({ message: "User ID required" });
+    }
+
+    // Prevents NoSQL injection / validation error
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid User ID format" });
     }
 
     // Check if chat already exists between these two users
@@ -33,8 +40,8 @@ router.post("/", protect, async (req, res) => {
     chat = await Chat.findById(chat._id).populate("users", "-password");
 
     // Invalidate chats cache for both users
-    await redisClient.del(`chats:${req.user._id}`);
-    await redisClient.del(`chats:${userId}`);
+    await scanAndUnlink(`chats:${req.user._id}:*`);
+    await scanAndUnlink(`chats:${userId}:*`);
 
     res.status(201).json(chat);
   } catch (error) {
@@ -42,14 +49,19 @@ router.post("/", protect, async (req, res) => {
   }
 });
 
-// Get all chats for logged in user
+// Get all chats for logged in user (Paginated)
 router.get("/", protect, async (req, res) => {
   try {
-    const cacheKey = `chats:${req.user._id}`;
-    const cachedChats = await redisClient.get(cacheKey);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
 
-    if (cachedChats) {
-      return res.json(JSON.parse(cachedChats));
+    const cacheKey = `chats:${req.user._id}:page:${page}:limit:${limit}`;
+    if (redisAvailable) {
+      const cachedChats = await redisClient.get(cacheKey);
+      if (cachedChats) {
+        return res.json(JSON.parse(cachedChats));
+      }
     }
 
     const chats = await Chat.find({
@@ -57,9 +69,13 @@ router.get("/", protect, async (req, res) => {
     })
     .populate("users", "-password")
     .populate("latestMessage")
-    .sort({ updatedAt: -1 });
+    .sort({ updatedAt: -1 })
+    .skip(skip)
+    .limit(limit);
 
-    await redisClient.setEx(cacheKey, 120, JSON.stringify(chats));
+    if (redisAvailable) {
+      await redisClient.setEx(cacheKey, 120, JSON.stringify(chats));
+    }
     res.json(chats);
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -75,15 +91,27 @@ router.post("/group", protect, async (req, res) => {
       return res.status(400).json({ message: "Users and chat name required" });
     }
 
+    if (!Array.isArray(users)) {
+      return res.status(400).json({ message: "Users must be an array" });
+    }
+
     if (users.length < 2) {
       return res.status(400).json({ message: "Group chat needs at least 2 users" });
     }
 
-    users.push(req.user._id);
+    // Validate users
+    const cleanUsers = [];
+    for (const uId of users) {
+      if (!mongoose.Types.ObjectId.isValid(uId)) {
+        return res.status(400).json({ message: `Invalid User ID format: ${uId}` });
+      }
+      cleanUsers.push(uId);
+    }
+    cleanUsers.push(req.user._id.toString());
 
     const chat = await Chat.create({
-      chatName,
-      users,
+      chatName: chatName.trim(),
+      users: cleanUsers,
       isGroupChat: true,
       groupAdmin: req.user._id
     });
@@ -91,8 +119,8 @@ router.post("/group", protect, async (req, res) => {
     const fullChat = await Chat.findById(chat._id).populate("users", "-password");
 
     // Invalidate chats cache for all group members
-    for (const memberId of users) {
-      await redisClient.del(`chats:${memberId}`);
+    for (const memberId of cleanUsers) {
+      await scanAndUnlink(`chats:${memberId}:*`);
     }
 
     res.status(201).json(fullChat);

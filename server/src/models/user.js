@@ -3,13 +3,31 @@ import mongoose, { Schema } from "mongoose";
 const userSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
-    email: { 
-      type: String, 
-      required: true, 
+    email: {
+      type: String,
+      required: true,
       unique: true,
       lowercase: true,
     },
-    password: { type: String, required: true, minlength: 6 },
+    password: {
+      type: String,
+      minlength: 6,
+      select: false,
+      required: function requiredPassword() {
+        return this.authProvider === "local";
+      },
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+      required: true,
+    },
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
     pic: {
       type: String,
       default:
@@ -22,9 +40,11 @@ const userSchema = new Schema(
   { timestamps: true }
 );
 
-userSchema.post('save', function(error, doc, next) {
-  if (error.name === 'MongoServerError' && error.code === 11000) {
-    next(new Error('Email already exists'));
+userSchema.index({ isOnline: -1, lastSeen: -1 });
+
+userSchema.post("save", function onSave(error, doc, next) {
+  if (error.name === "MongoServerError" && error.code === 11000) {
+    next(new Error("Email already exists"));
   } else {
     next(error);
   }

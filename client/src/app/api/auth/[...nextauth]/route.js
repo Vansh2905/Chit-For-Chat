@@ -9,6 +9,16 @@ const handler = NextAuth({
     }),
   ],
   callbacks: {
+    async jwt({ token, account }) {
+      if (account?.id_token) {
+        token.googleIdToken = account.id_token;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      session.idToken = token.googleIdToken;
+      return session;
+    },
     async redirect({ url, baseUrl }) {
       return url.startsWith(baseUrl) ? url : baseUrl + "/Chat";
     },

@@ -2,8 +2,12 @@ import express from "express";
 import User from "../models/user.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { rateLimiter } from "../middleware/rateLimiter.js";
+import { verifyGoogleIdToken } from "../utils/verifyGoogleToken.js";
 
 const router = express.Router();
+
+const LEGACY_GOOGLE_PASSWORD = "google-oauth";
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -11,36 +15,51 @@ const generateToken = (id) => {
   });
 };
 
+const formatAuthResponse = (user, token) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  pic: user.pic,
+  authProvider: user.authProvider,
+  token,
+});
+
+const isLegacyGoogleUser = (user) =>
+  user.password === LEGACY_GOOGLE_PASSWORD ||
+  (user.authProvider === "google" && !user.googleId);
+
 // Register
-router.post("/register", async (req, res) => {
+router.post("/register", rateLimiter({ keyPrefix: "signup", limit: 3, windowMs: 60000 }), async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    
+
     if (!name) {
       return res.status(400).json({ message: "Name is required" });
     }
-    
-    const userExists = await User.findOne({ email: email.toLowerCase() });
-    if (userExists) {
+
+    const normalizedEmail = email?.toLowerCase();
+    const existing = await User.findOne({ email: normalizedEmail });
+
+    if (existing) {
+      if (existing.authProvider === "google" || isLegacyGoogleUser(existing)) {
+        return res.status(409).json({
+          message: "An account with this email uses Google sign-in. Please continue with Google.",
+        });
+      }
       return res.status(400).json({ message: "User already exists" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({ 
-      name: name.trim(), 
-      email: email.toLowerCase(), 
-      password: hashedPassword 
+    const user = await User.create({
+      name: name.trim(),
+      email: normalizedEmail,
+      password: hashedPassword,
+      authProvider: "local",
     });
-    
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      pic: user.pic,
-      token: generateToken(user._id),
-    });
+
+    res.status(201).json(formatAuthResponse(user, generateToken(user._id)));
   } catch (error) {
-    if (error.name === 'ValidationError') {
+    if (error.name === "ValidationError") {
       return res.status(400).json({ message: error.message });
     }
     res.status(500).json({ message: "Server error" });
@@ -48,67 +67,135 @@ router.post("/register", async (req, res) => {
 });
 
 // Login
-router.post("/login", async (req, res) => {
+router.post("/login", rateLimiter({ keyPrefix: "login", limit: 5, windowMs: 60000 }), async (req, res) => {
   try {
     const { email, password } = req.body;
-    
-    const user = await User.findOne({ email: email.toLowerCase() });
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
     if (!user) {
       return res.status(401).json({ message: "Invalid email or password" });
     }
-    
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (isMatch) {
-      await User.findByIdAndUpdate(user._id, { 
-        isOnline: true, 
-        lastSeen: new Date() 
+
+    if (user.authProvider === "google" && !user.password) {
+      return res.status(401).json({
+        message: "This account uses Google sign-in. Please continue with Google.",
       });
-      
-      res.json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        pic: user.pic,
-        token: generateToken(user._id),
-      });
-    } else {
-      res.status(401).json({ message: "Invalid email or password" });
     }
+
+    if (isLegacyGoogleUser(user)) {
+      return res.status(401).json({
+        message: "This account uses Google sign-in. Please continue with Google.",
+      });
+    }
+
+    if (!user.password) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    await User.findByIdAndUpdate(user._id, {
+      isOnline: true,
+      lastSeen: new Date(),
+    });
+
+    user.password = undefined;
+    res.json(formatAuthResponse(user, generateToken(user._id)));
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// Google OAuth sync
-router.post("/google", async (req, res) => {
-  try {
-    const { email, name, pic } = req.body;
-    
-    let user = await User.findOne({ email: email.toLowerCase() });
-    
-    if (!user) {
-      user = await User.create({
-        name: name.trim(),
-        email: email.toLowerCase(),
-        password: "google-oauth"
-      });
-    } else {
-      await User.findByIdAndUpdate(user._id, {
-        isOnline: true,
-        lastSeen: new Date()
-      });
+// Google OAuth — verified ID token only
+router.post(
+  "/google",
+  rateLimiter({ keyPrefix: "google", limit: 10, windowMs: 60000 }),
+  async (req, res) => {
+    try {
+      const { idToken } = req.body;
+
+      if (!idToken || typeof idToken !== "string") {
+        return res.status(400).json({ message: "Google ID token is required" });
+      }
+
+      let googleUser;
+      try {
+        googleUser = await verifyGoogleIdToken(idToken);
+      } catch (verifyError) {
+        console.warn("[AUTH] Google ID token verification failed:", verifyError.message);
+        return res.status(401).json({ message: "Invalid or expired Google sign-in" });
+      }
+
+      const { email, name, picture, googleId } = googleUser;
+
+      let user = await User.findOne({ googleId });
+
+      if (!user) {
+        user = await User.findOne({ email });
+      }
+
+      if (user) {
+        if (user.authProvider === "local" && user.password && !isLegacyGoogleUser(user)) {
+          return res.status(409).json({
+            message:
+              "An account with this email already exists. Sign in with your email and password.",
+          });
+        }
+
+        if (user.googleId && user.googleId !== googleId) {
+          return res.status(409).json({ message: "Google account conflict. Contact support." });
+        }
+
+        const update = {
+          authProvider: "google",
+          googleId,
+          isOnline: true,
+          lastSeen: new Date(),
+          name,
+        };
+
+        if (picture) {
+          update.pic = picture;
+        }
+
+        user = await User.findByIdAndUpdate(
+          user._id,
+          {
+            $set: update,
+            $unset: { password: "" },
+          },
+          { new: true, runValidators: true }
+        );
+      } else {
+        user = await User.create({
+          name,
+          email,
+          pic: picture || undefined,
+          googleId,
+          authProvider: "google",
+        });
+
+        await User.findByIdAndUpdate(user._id, {
+          isOnline: true,
+          lastSeen: new Date(),
+        });
+      }
+
+      res.json(formatAuthResponse(user, generateToken(user._id)));
+    } catch (error) {
+      if (error.name === "ValidationError") {
+        return res.status(400).json({ message: error.message });
+      }
+      if (error.name === "MongoServerError" && error.code === 11000) {
+        return res.status(409).json({ message: "Unable to link Google account. Try again." });
+      }
+      console.error("[AUTH] Google sign-in error:", error);
+      res.status(500).json({ message: "Server error" });
     }
-    
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      pic: user.pic,
-      token: generateToken(user._id),
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
   }
-});
+);
 
 export default router;
