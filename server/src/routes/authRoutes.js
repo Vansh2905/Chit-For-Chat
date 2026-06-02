@@ -31,6 +31,16 @@ const isLegacyGoogleUser = (user) =>
 const isValidEmail = (value) =>
   typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
+const isGoogleHostedProfilePic = (value) => {
+  if (typeof value !== "string" || value.trim().length === 0) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === "lh3.googleusercontent.com" || hostname.endsWith(".googleusercontent.com");
+  } catch {
+    return false;
+  }
+};
+
 // Register
 router.post("/register", rateLimiter({ keyPrefix: "signup", limit: 3, windowMs: 60000 }), async (req, res) => {
   try {
@@ -176,7 +186,9 @@ router.post(
           name,
         };
 
-        if (picture) {
+        // Preserve user-customized profile pictures.
+        // Only refresh avatar from Google if current pic is empty or still Google-hosted.
+        if (picture && (!user.pic || isGoogleHostedProfilePic(user.pic))) {
           update.pic = picture;
         }
 

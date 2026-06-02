@@ -7,19 +7,21 @@ import redisClient, { redisAvailable } from "../config/redis.js";
 export const scanAndUnlink = async (pattern) => {
   if (!redisAvailable) return;
   try {
-    let cursor = 0;
+    let cursor = "0";
     do {
-      // In node-redis v4/v5, scan returns { cursor: number, keys: string[] }
+      // In node-redis v5, scan returns { cursor: string, keys: string[] }.
+      // Keep cursor as a string to match the client API shape consistently.
       const reply = await redisClient.scan(cursor, {
         MATCH: pattern,
         COUNT: 100
       });
-      cursor = reply.cursor;
+      cursor = String(reply.cursor);
       if (reply.keys && reply.keys.length > 0) {
         await redisClient.unlink(reply.keys);
       }
-    } while (cursor !== 0);
+    } while (cursor !== "0");
   } catch (error) {
-    console.error(`[REDIS_HELPER_ERROR] scanAndUnlink failed for pattern ${pattern}:`, error);
+    console.error("[REDIS_HELPER_ERROR]", error);
+    console.error(error.stack);
   }
 };
