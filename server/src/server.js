@@ -74,7 +74,7 @@ io.use(async (socket, next) => {
   const ip = getClientIp(socket);
   socket.ip = ip;
 
-  const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+  const token = socket.handshake.auth?.token;
   if (!token) {
     console.warn(`[SECURITY ALERT] Connection rejected: No token from IP: ${ip}`);
     return next(new Error("Authentication failed: Token required"));
@@ -82,6 +82,9 @@ io.use(async (socket, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!decoded?.id) {
+      return next(new Error("Authentication failed: Invalid token payload"));
+    }
     socket.userId = decoded.id;
 
     // Check Redis connection limits if Redis is available
@@ -372,3 +375,11 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[UNHANDLED_REJECTION]", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("[UNCAUGHT_EXCEPTION]", error);
+});

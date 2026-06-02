@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import helmet from "helmet";
 import connectDB from "./config/db.js";
 import { connectRedis } from "./config/redis.js";
 import authRoutes from "./routes/authRoutes.js";
@@ -16,6 +17,7 @@ connectDB();
 connectRedis();
 
 const app = express();
+app.set("trust proxy", 1);
 
 // Parse CORS Allowed Origins
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
@@ -41,6 +43,7 @@ app.use(
     credentials: true,
   })
 );
+app.use(helmet());
 
 // Track API traffic metrics
 app.use((req, res, next) => {
@@ -62,5 +65,16 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/security", securityRoutes);
+
+app.use((err, req, res, next) => {
+  if (err?.message?.includes("CORS policy violation")) {
+    return res.status(403).json({ message: "Origin not allowed" });
+  }
+  if (err?.type === "entity.too.large") {
+    return res.status(413).json({ message: "Payload too large" });
+  }
+  console.error("[UNHANDLED_API_ERROR]", err);
+  return res.status(500).json({ message: "Internal server error" });
+});
 
 export default app;

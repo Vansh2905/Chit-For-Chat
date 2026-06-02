@@ -28,16 +28,25 @@ const isLegacyGoogleUser = (user) =>
   user.password === LEGACY_GOOGLE_PASSWORD ||
   (user.authProvider === "google" && !user.googleId);
 
+const isValidEmail = (value) =>
+  typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
 // Register
 router.post("/register", rateLimiter({ keyPrefix: "signup", limit: 3, windowMs: 60000 }), async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ message: "Name is required" });
+    if (typeof name !== "string" || name.trim().length < 2 || name.trim().length > 50) {
+      return res.status(400).json({ message: "Name must be between 2 and 50 characters" });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ message: "Valid email is required" });
+    }
+    if (typeof password !== "string" || password.length < 6 || password.length > 128) {
+      return res.status(400).json({ message: "Password must be between 6 and 128 characters" });
     }
 
-    const normalizedEmail = email?.toLowerCase();
+    const normalizedEmail = email.toLowerCase().trim();
     const existing = await User.findOne({ email: normalizedEmail });
 
     if (existing) {
@@ -70,8 +79,11 @@ router.post("/register", rateLimiter({ keyPrefix: "signup", limit: 3, windowMs: 
 router.post("/login", rateLimiter({ keyPrefix: "login", limit: 5, windowMs: 60000 }), async (req, res) => {
   try {
     const { email, password } = req.body;
+    if (!isValidEmail(email) || typeof password !== "string" || password.length === 0) {
+      return res.status(400).json({ message: "Valid email and password are required" });
+    }
 
-    const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
+    const user = await User.findOne({ email: email.toLowerCase().trim() }).select("+password");
     if (!user) {
       return res.status(401).json({ message: "Invalid email or password" });
     }

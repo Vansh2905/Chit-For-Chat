@@ -20,6 +20,8 @@ const SLIDING_WINDOW_LUA = `
   end
 `;
 
+const fallbackWindows = new Map();
+
 export const getClientIp = (req) => {
   const forwarded = req.headers["x-forwarded-for"];
   if (forwarded) {
@@ -28,13 +30,23 @@ export const getClientIp = (req) => {
   return req.ip || req.connection?.remoteAddress || "127.0.0.1";
 };
 
+const isAllowedByLocalFallback = (key, now, windowMs, limit) => {
+  const existing = fallbackWindows.get(key) || [];
+  const cutoff = now - windowMs;
+  const recent = existing.filter((ts) => ts > cutoff);
+
+  if (recent.length >= limit) {
+    fallbackWindows.set(key, recent);
+    return false;
+  }
+
+  recent.push(now);
+  fallbackWindows.set(key, recent);
+  return true;
+};
+
 export const rateLimiter = ({ keyPrefix, limit, windowMs, useUser = false }) => {
   return async (req, res, next) => {
-    if (!redisAvailable) {
-      console.warn(`[RATE_LIMIT_WARNING] Redis unavailable. Bypassing rate limit check for ${keyPrefix}`);
-      return next();
-    }
-
     let identifier;
     if (useUser) {
       if (!req.user || !req.user._id) {
@@ -47,6 +59,18 @@ export const rateLimiter = ({ keyPrefix, limit, windowMs, useUser = false }) => 
 
     const key = `ratelimit:${keyPrefix}:${identifier}`;
     const now = Date.now();
+
+    if (!redisAvailable) {
+      const allowed = isAllowedByLocalFallback(key, now, windowMs, limit);
+      if (!allowed) {
+        securityMetrics.rateLimitViolations++;
+        return res.status(429).json({
+          message: "Too many requests, please try again later.",
+          retryAfter: Math.ceil(windowMs / 1000)
+        });
+      }
+      return next();
+    }
 
     try {
       const allowed = await redisClient.eval(SLIDING_WINDOW_LUA, {
@@ -66,7 +90,14 @@ export const rateLimiter = ({ keyPrefix, limit, windowMs, useUser = false }) => 
       }
     } catch (error) {
       console.error(`[RATE_LIMIT_ERROR] Failed to run rate limiter for ${keyPrefix}:`, error);
-      // Graceful fallback on outage
+      const allowed = isAllowedByLocalFallback(key, now, windowMs, limit);
+      if (!allowed) {
+        securityMetrics.rateLimitViolations++;
+        return res.status(429).json({
+          message: "Too many requests, please try again later.",
+          retryAfter: Math.ceil(windowMs / 1000)
+        });
+      }
       next();
     }
   };
