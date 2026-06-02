@@ -19,13 +19,12 @@ mongoose.plugin((schema) => {
   ];
 
   // Pre-query hook
-  schema.pre(operations, function (next) {
+  schema.pre(operations, function () {
     if (this.options.maxTimeMS === undefined) {
       this.setOptions({ maxTimeMS: 5000 });
     }
 
     this._startTime = Date.now();
-    next();
   });
 
   // Post-query hook (SUCCESS)
@@ -45,28 +44,6 @@ mongoose.plugin((schema) => {
     }
   });
 
-//   // Post-query hook (ERROR)
-//   schema.post(operations, function (error, res, next) {
-//     if (
-//       error &&
-//       (
-//         error.name === "MaxTimeMSExpired" ||
-//         error.code === 50 ||
-//         error.message?.toLowerCase().includes("timeout")
-//       )
-//     ) {
-//       dbMetrics.queryTimeouts++;
-
-//       console.error(
-//         `[DATABASE TIMEOUT] ${
-//           this.model?.modelName || "Unknown"
-//         }.${this.op}`
-//       );
-//     }
-
-//     next(error);
-//   });
-// 
 });
 
 const connectDB = async () => {
