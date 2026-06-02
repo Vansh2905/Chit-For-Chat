@@ -5,35 +5,65 @@ export const dbMetrics = {
   queryTimeouts: 0,
 };
 
-// Global Mongoose plugin to protect against collection scans and unindexed/runaway queries
+// Global Mongoose plugin to protect against collection scans and runaway queries
 mongoose.plugin((schema) => {
-  // Pre-query hook: Enforce 5000ms query timeout limit & track start time
-  schema.pre(["find", "findOne", "findOneAndUpdate", "updateOne", "updateMany", "deleteOne", "deleteMany", "countDocuments"], function(next) {
+  const operations = [
+    "find",
+    "findOne",
+    "findOneAndUpdate",
+    "updateOne",
+    "updateMany",
+    "deleteOne",
+    "deleteMany",
+    "countDocuments",
+  ];
+
+  // Pre-query hook
+  schema.pre(operations, function (next) {
     if (this.options.maxTimeMS === undefined) {
-      this.setOptions({ maxTimeMS: 5000 }); // Enforce 5 seconds query timeout
+      this.setOptions({ maxTimeMS: 5000 });
     }
+
     this._startTime = Date.now();
     next();
   });
 
-  // Post-query hook: Measure duration and flag queries taking > 100ms as slow
-  schema.post(["find", "findOne", "findOneAndUpdate", "updateOne", "updateMany", "deleteOne", "deleteMany", "countDocuments"], function(res, next) {
+  // Post-query hook (SUCCESS)
+  schema.post(operations, function () {
     if (this._startTime) {
       const duration = Date.now() - this._startTime;
+
       if (duration > 100) {
         dbMetrics.slowQueries++;
-        console.warn(`[SLOW QUERY ALERT] ${this.model?.modelName || "Unknown"}.${this.op} took ${duration}ms`);
+
+        console.warn(
+          `[SLOW QUERY ALERT] ${
+            this.model?.modelName || "Unknown"
+          }.${this.op} took ${duration}ms`
+        );
       }
     }
-    next();
   });
 
-  // Error hook: Catch and count query timeout errors
-  schema.post(["find", "findOne", "findOneAndUpdate", "updateOne", "updateMany", "deleteOne", "deleteMany", "countDocuments"], function(error, res, next) {
-    if (error && (error.name === "MaxTimeMSExpired" || error.code === 50 || error.message?.includes("timeout"))) {
+  // Post-query hook (ERROR)
+  schema.post(operations, function (error, res, next) {
+    if (
+      error &&
+      (
+        error.name === "MaxTimeMSExpired" ||
+        error.code === 50 ||
+        error.message?.toLowerCase().includes("timeout")
+      )
+    ) {
       dbMetrics.queryTimeouts++;
-      console.error(`[DATABASE TIMEOUT] Query timed out on ${this.model?.modelName || "Unknown"}.${this.op}`);
+
+      console.error(
+        `[DATABASE TIMEOUT] ${
+          this.model?.modelName || "Unknown"
+        }.${this.op}`
+      );
     }
+
     next(error);
   });
 });
@@ -43,7 +73,10 @@ const connectDB = async () => {
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 5000,
     });
-    console.log("✅ MongoDB Connected with global protection filters");
+
+    console.log(
+      "✅ MongoDB Connected"
+    );
   } catch (err) {
     console.error("MongoDB Connection Error:", err.message);
     process.exit(1);
