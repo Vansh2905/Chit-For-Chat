@@ -198,7 +198,7 @@ router.post(
             $set: update,
             $unset: { password: "" },
           },
-          { new: true, runValidators: true }
+          { returnDocument: 'after', runValidators: true }
         );
       } else {
         user = await User.create({

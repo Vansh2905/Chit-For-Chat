@@ -72,7 +72,7 @@ router.put("/profile", protect, async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.user._id,
       updateFields,
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     ).select("-password");
 
     // Invalidate all users caches because user profile updated
