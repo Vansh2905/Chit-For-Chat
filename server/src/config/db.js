@@ -45,27 +45,28 @@ mongoose.plugin((schema) => {
     }
   });
 
-  // Post-query hook (ERROR)
-  schema.post(operations, function (error, res, next) {
-    if (
-      error &&
-      (
-        error.name === "MaxTimeMSExpired" ||
-        error.code === 50 ||
-        error.message?.toLowerCase().includes("timeout")
-      )
-    ) {
-      dbMetrics.queryTimeouts++;
+//   // Post-query hook (ERROR)
+//   schema.post(operations, function (error, res, next) {
+//     if (
+//       error &&
+//       (
+//         error.name === "MaxTimeMSExpired" ||
+//         error.code === 50 ||
+//         error.message?.toLowerCase().includes("timeout")
+//       )
+//     ) {
+//       dbMetrics.queryTimeouts++;
 
-      console.error(
-        `[DATABASE TIMEOUT] ${
-          this.model?.modelName || "Unknown"
-        }.${this.op}`
-      );
-    }
+//       console.error(
+//         `[DATABASE TIMEOUT] ${
+//           this.model?.modelName || "Unknown"
+//         }.${this.op}`
+//       );
+//     }
 
-    next(error);
-  });
+//     next(error);
+//   });
+// 
 });
 
 const connectDB = async () => {

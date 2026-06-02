@@ -117,7 +117,12 @@ router.post("/login", rateLimiter({ keyPrefix: "login", limit: 5, windowMs: 6000
     user.password = undefined;
     res.json(formatAuthResponse(user, generateToken(user._id)));
   } catch (error) {
-    res.status(500).json({ message: "Server error" });
+    console.error("[LOGIN ERROR]", error);
+
+    res.status(500).json({
+      message: error.message,
+      name: error.name,
+    });
   }
 });
 
